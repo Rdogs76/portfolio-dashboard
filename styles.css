@@ -620,3 +620,8 @@ kbd { font: 11px/1 ui-monospace, Menlo, Consolas, monospace; padding: 2px 5px; b
 @media (max-width: 720px) {
   .hero .donut-wrap { min-height: 0; aspect-ratio: 1; max-width: 320px; flex: none; }
 }
+/* About: fill the card beside it instead of stopping halfway; scroll if the text is longer */
+.about-card { display: flex; flex-direction: column; }
+.about-card .about { flex: 1 1 auto; min-height: 240px; max-height: none; contain: size; overflow-y: auto; padding-right: 6px; line-height: 1.6; color: var(--text-2); scrollbar-width: thin; }
+.about-card .about p:last-child { margin-bottom: 0; }
+@media (max-width: 720px) { .about-card .about { contain: none; min-height: 0; max-height: 360px; } }
