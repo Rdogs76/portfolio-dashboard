@@ -1,0 +1,13 @@
+{
+  "name": "portfolio-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal portfolio dashboard: holdings, live quotes, ratios, analyst insights, earnings, economic calendar and market recap.",
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "yahoo-finance2": "^4.0.3"
+  }
+}
