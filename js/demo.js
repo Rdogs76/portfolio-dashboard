@@ -222,6 +222,12 @@
       case "search": { const q = (params.q || "").toUpperCase(); return { results: Object.keys(CATALOG).filter((k) => k.includes(q) || (CATALOG[k][2] || "").toUpperCase().includes(q)).slice(0, 8).map((k) => ({ symbol: k, name: CATALOG[k][2] || k, exchange: k.endsWith(".TO") ? "Toronto" : "NASDAQ", type: CATALOG[k][3] || "ETF" })) }; }
       case "calendar": return { events: calendar(), source: "Demo", asOf: Date.now() };
       case "market": return { series: MARKET.map(([symbol, name, group]) => ({ symbol, name, group, points: chart(symbol, "3mo").points })), asOf: Date.now() };
+      case "feargreed": {
+        const r = (v) => (v < 25 ? "Extreme fear" : v < 45 ? "Fear" : v < 55 ? "Neutral" : v < 75 ? "Greed" : "Extreme greed");
+        const parts = [["Market momentum", 31, "S&P 500 is 1.2% above its 125-day average"], ["Stock price strength", 18, "S&P 500 is 22% of the way from its 52-week low to its high"], ["Stock price breadth", 27, "The average stock has lagged the index by 1.4 pts over 20 days"], ["Market volatility", 12, "VIX is 21% above its 50-day average"], ["Safe haven demand", 24, "Stocks have lagged long-term Treasuries by 2.3 pts over 20 days"], ["Junk bond demand", 15, "Junk bonds have lagged safer bonds by 0.8 pts over 20 days"]];
+        const history = Array.from({ length: 250 }, (_, i) => [Date.now() - (250 - i) * 1.46 * 864e5, Math.round(50 + 30 * Math.sin(i / 23) - i / 12)]);
+        return { source: "model", score: 21, rating: r(21), previousClose: 24, week: 33, month: 48, year: 71, updated: Date.now(), components: parts.map(([name, score, detail]) => ({ key: name, name, score, rating: r(score), detail })), history, note: "Demo data.", asOf: Date.now() };
+      }
       default: throw new Error("Unknown demo path " + path);
     }
   }
