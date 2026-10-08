@@ -22,6 +22,13 @@ export default async function handler(req, res) {
         type: q.quoteType || null,
         marketState: q.marketState || null,
         time: time(q.regularMarketTime),
+        high52: num(q.fiftyTwoWeekHigh),
+        low52: num(q.fiftyTwoWeekLow),
+        pe: num(q.trailingPE),
+        forwardPE: num(q.forwardPE),
+        marketCap: num(q.marketCap),
+        dividendRate: num(q.dividendRate ?? q.trailingAnnualDividendRate),
+        dividendYield: num(q.dividendYield) ?? (num(q.trailingAnnualDividendYield) != null ? num(q.trailingAnnualDividendYield) * 100 : null),
       };
     }
     send(res, 200, { quotes, asOf: Date.now() }, 60);
