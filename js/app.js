@@ -307,6 +307,53 @@
       catch (e) { console.warn("meta", e); }
     }
   }
+  async function loadFearGreed() { try { state.fg = await api("feargreed"); } catch (e) { state.fg = state.fg?.score != null ? state.fg : { error: String(e.message || e) }; console.warn(e); } }
+
+  // ---------- Fear & Greed gauge ----------
+  const FG_BANDS = [[0, 25, "Extreme fear", "#d9443b"], [25, 45, "Fear", "#f08a4b"], [45, 55, "Neutral", "#e9b949"], [55, 75, "Greed", "#6fc392"], [75, 100, "Extreme greed", "#12996b"]];
+  const fgBand = (v) => FG_BANDS.find((b) => v < b[1]) || FG_BANDS[4];
+  function fgGauge(score) {
+    const cx = 150, cy = 150, r = 116, w = 24, f = (n) => n.toFixed(2);
+    const pt = (v, rad) => { const a = Math.PI * (1 - v / 100); return [cx + rad * Math.cos(a), cy - rad * Math.sin(a)]; };
+    const arc = (a, b, rad) => { const [x1, y1] = pt(a, rad), [x2, y2] = pt(b, rad); return `M${f(x1)} ${f(y1)} A${rad} ${rad} 0 0 1 ${f(x2)} ${f(y2)}`; };
+    const act = fgBand(score);
+    let svg = `<svg class="fg-svg" viewBox="-14 -4 328 166" role="img" aria-label="Fear and Greed Index ${Math.round(score)}: ${act[2]}">`;
+    for (const b of FG_BANDS) svg += `<path d="${arc(b[0] + (b[0] ? 0.7 : 0), b[1] - (b[1] < 100 ? 0.7 : 0), r)}" stroke="${b[3]}" stroke-width="${w}" fill="none" opacity="${b === act ? 1 : 0.3}"/>`;
+    for (let v = 0; v <= 100; v += 5) { const [x, y] = pt(v, r - w / 2 - 9); svg += `<circle cx="${f(x)}" cy="${f(y)}" r="${v % 25 ? 1.2 : 2}" class="fg-dot"/>`; }
+    for (const v of [0, 25, 50, 75, 100]) { const [x, y] = pt(v, r + w / 2 + 11); svg += `<text x="${f(x)}" y="${f(y)}" class="fg-tick" text-anchor="middle" dominant-baseline="middle">${v}</text>`; }
+    const a = Math.PI * (1 - score / 100), [nx, ny] = pt(score, r - w / 2 - 16), px = Math.sin(a) * 6, py = Math.cos(a) * 6;
+    svg += `<path d="M${f(cx - px)} ${f(cy - py)} L${f(nx)} ${f(ny)} L${f(cx + px)} ${f(cy + py)} Z" class="fg-needle"/><circle cx="${cx}" cy="${cy}" r="10" class="fg-hub"/><circle cx="${cx}" cy="${cy}" r="4" fill="${act[3]}"/>`;
+    return svg + "</svg>";
+  }
+  function fgSpark(hist) {
+    if (!hist?.length || hist.length < 10) return "";
+    const W = 300, H = 56, t0 = hist[0][0], t1 = hist.at(-1)[0], X = (t) => ((t - t0) / (t1 - t0 || 1)) * W, Y = (v) => H - (v / 100) * H;
+    const line = hist.map(([t, v], i) => `${i ? "L" : "M"}${X(t).toFixed(1)} ${Y(v).toFixed(1)}`).join(" ");
+    return `<div class="fg-spark"><div class="fg-spark-head"><span>Past year</span><span>${fmtDate(t0, { month: "short", year: "numeric" })} – now</span></div>
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="0" width="${W}" height="${Y(75)}" class="fg-zone greed"/><rect x="0" y="${Y(25)}" width="${W}" height="${H - Y(25)}" class="fg-zone fear"/>
+      <line x1="0" x2="${W}" y1="${Y(50)}" y2="${Y(50)}" class="fg-mid"/><path d="${line}" class="fg-line" vector-effect="non-scaling-stroke"/></svg></div>`;
+  }
+  function renderFearGreed() {
+    const box = $("#fgBody"); if (!box) return;
+    const g = state.fg;
+    if (!g) return;
+    if (g.score == null) { box.innerHTML = `<p class="empty-line">The Fear &amp; Greed Index couldn't be loaded right now. It will try again on the next refresh.</p>`; $("#fgAsOf").textContent = ""; return; }
+    const act = fgBand(g.score);
+    const row = (label, v) => { if (v == null) return ""; const b = fgBand(v); return `<li><span class="fg-h-label">${label}</span><span class="fg-h-rating">${b[2]}</span><span class="fg-badge" style="--c:${b[3]}">${Math.round(v)}</span></li>`; };
+    const parts = (g.components || []).map((c) => { const b = fgBand(c.score); return `<li><div class="grow"><div class="title">${esc(c.name)}</div><div class="meta">${esc(c.detail || c.about || "")}</div></div><span class="fg-chip" style="--c:${b[3]}">${b[2]}</span><span class="fg-badge sm" style="--c:${b[3]}">${Math.round(c.score)}</span></li>`; }).join("");
+    box.innerHTML = `<div class="fg">
+      <div class="fg-dial">${fgGauge(g.score)}
+        <div class="fg-now"><span class="fg-now-label">Now</span><span class="fg-score" style="color:${act[3]}">${Math.round(g.score)}</span><span class="fg-rating" style="color:${act[3]}">${act[2]}</span></div>
+      </div>
+      <ul class="fg-hist">${row("Previous close", g.previousClose)}${row("1 week ago", g.week)}${row("1 month ago", g.month)}${row("1 year ago", g.year)}</ul>
+    </div>
+    <div class="fg-legend">${FG_BANDS.map((b) => `<span><i style="background:${b[3]}"></i>${b[2]} <small>${b[0]}–${b[1]}</small></span>`).join("")}</div>
+    ${parts || g.history?.length ? `<details class="fg-more"><summary>What's driving it</summary>${fgSpark(g.history)}${parts ? `<ul class="list fg-parts">${parts}</ul>` : ""}
+      <p class="small muted fg-about">The index runs from 0 to 100. Readings under 25 mean investors are fearful and selling; this has often happened near market lows. Readings over 75 mean greed, which has often come before pullbacks. It is a mood gauge, not a timing signal.</p></details>` : ""}
+    <p class="small muted fg-src">${g.source === "cnn" ? `Source: <a href="https://www.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener noreferrer">CNN Business</a>` : `Estimated from S&amp;P 500 momentum, the VIX, bond demand and market breadth${g.note && /CNN/.test(g.note) ? " because CNN's index was unavailable" : ""}.`}</p>`;
+    $("#fgAsOf").textContent = g.updated ? "As of " + fmtDate(g.updated, { month: "short", day: "numeric" }) : "";
+  }
+
   async function loadMarket() { try { state.market = (await api("market")).series; } catch (e) { state.market = state.market || []; console.warn(e); } }
   async function loadEvents() { try { state.events = (await api("calendar")).events; } catch (e) { state.events = state.events || []; state.eventsError = e.message; } }
   async function loadNews() {
@@ -320,7 +367,7 @@
     state.meta = {}; state.stockCache = {};
     try {
       await loadQuotes(); renderCurrent();
-      await Promise.all([loadMarket(), loadEvents(), loadNews()]);
+      await Promise.all([loadMarket(), loadEvents(), loadNews(), loadFearGreed()]);
       renderCurrent();
       loadMeta(metaSymbols()).then(renderCurrent);
     } finally { btn.classList.remove("spinning"); }
@@ -333,6 +380,7 @@
     const el = document.getElementById(id); if (!el) return null;
     Chart.defaults.font.family = "Inter, system-ui, sans-serif";
     Chart.defaults.color = css("--text-2");
+    if (config.type === "line") fitTimeAxis(config);
     state.charts[id] = new Chart(el, config);
     return state.charts[id];
   }
@@ -347,10 +395,51 @@
       },
     });
   }
+  // Make the x axis start and end exactly where the data does, with tidy date ticks
+  // (month starts, days or hours depending on the span) so the line fills the card edge to edge.
+  function fitTimeAxis(config) {
+    const x = config.options?.scales?.x; if (!x || x.type !== "linear") return;
+    let lo = Infinity, hi = -Infinity;
+    for (const d of config.data.datasets) for (const p of d.data || []) { const v = p?.x; if (Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; } }
+    if (!Number.isFinite(lo) || hi <= lo) return;
+    x.min = lo; x.max = hi; x.offset = false;
+    const DAY = 864e5, span = hi - lo, ticks = [];
+    let fmt;
+    if (span <= 1.5 * DAY) {
+      const H = 36e5, step = Math.max(1, Math.ceil(span / H / 6)) * H;
+      const d = new Date(lo); d.setMinutes(0, 0, 0); let t = d.getTime() + H;
+      for (; t < hi; t += step) ticks.push(t);
+      fmt = (v) => new Date(v).toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit" });
+    } else if (span <= 10 * DAY) {
+      const d = new Date(lo); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + 1);
+      for (; d.getTime() < hi; d.setDate(d.getDate() + 1)) ticks.push(d.getTime());
+      fmt = (v) => new Date(v).toLocaleDateString("en-CA", { weekday: "short", day: "numeric" });
+    } else if (span <= 75 * DAY) {
+      const stepDays = Math.max(1, Math.ceil(span / DAY / 6));
+      const d = new Date(lo); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + 1);
+      for (; d.getTime() < hi; d.setDate(d.getDate() + stepDays)) ticks.push(d.getTime());
+      fmt = (v) => new Date(v).toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+    } else if (span <= 3 * 366 * DAY) {
+      const months = span / (30.44 * DAY), step = Math.max(1, Math.ceil(months / 6));
+      const d = new Date(lo); d.setHours(0, 0, 0, 0); d.setDate(1); d.setMonth(d.getMonth() + 1);
+      while (d.getMonth() % step && step <= 3) d.setMonth(d.getMonth() + 1);
+      for (; d.getTime() < hi; d.setMonth(d.getMonth() + step)) ticks.push(d.getTime());
+      fmt = (v) => { const d = new Date(v); return d.getMonth() === 0 || span > 400 * DAY ? d.toLocaleDateString("en-CA", { month: "short", year: "numeric" }) : d.toLocaleDateString("en-CA", { month: "short" }); };
+    } else {
+      const d = new Date(new Date(lo).getFullYear() + 1, 0, 1);
+      for (; d.getTime() < hi; d.setFullYear(d.getFullYear() + 1)) ticks.push(d.getTime());
+      fmt = (v) => String(new Date(v).getFullYear());
+    }
+    const edge = span * 0.04, keep = ticks.filter((t) => t > lo + edge && t < hi - edge);
+    x.afterBuildTicks = (axis) => { axis.ticks = keep.map((value) => ({ value })); };
+    x.ticks = { ...(x.ticks || {}), autoSkip: true, maxRotation: 0, padding: 6, callback: fmt };
+    for (const d of config.data.datasets) if (d.clip == null) d.clip = 4;
+  }
   function lineOpts({ money: m, pctAxis, time, cur } = {}) {
     const grid = css("--border");
     return {
       maintainAspectRatio: false, animation: { duration: 300 }, interaction: { mode: "index", intersect: false },
+      layout: { padding: { top: 6, right: 0, left: 0, bottom: 0 } },
       plugins: {
         legend: { display: false },
         tooltip: { callbacks: {
@@ -359,8 +448,9 @@
         } },
       },
       scales: {
-        x: { type: "linear", grid: { display: false }, ticks: { maxTicksLimit: 6, callback: (v) => new Date(v).toLocaleDateString("en-CA", time ? { hour: "numeric" } : { month: "short", day: "numeric" }) } },
-        y: { position: "right", grid: { color: grid }, border: { display: false }, ticks: { maxTicksLimit: 5, callback: (v) => (pctAxis ? pct(v, 0) : m ? big(v, cur) : num(v, v > 100 ? 0 : 2)) } },
+        x: { type: "linear", grid: { display: false }, border: { color: grid }, ticks: { maxTicksLimit: 7, callback: (v) => new Date(v).toLocaleDateString("en-CA", time ? { hour: "numeric" } : { month: "short", day: "numeric" }) } },
+        y: { position: "right", grace: "4%", grid: { color: grid, drawTicks: false }, border: { display: false }, ticks: { maxTicksLimit: 5, padding: 8, callback: (v) => (pctAxis ? pct(v, 0) : m ? big(v, cur) : num(v, v > 100 ? 0 : 2)) },
+          afterFit: (sc) => { sc.width = Math.max(sc.width + 4, 48); } },
       },
       elements: { point: { radius: 0, hoverRadius: 4 }, line: { tension: .25, borderWidth: 2 } },
     };
@@ -454,6 +544,7 @@
       const chg = !q ? "" : s === "^TNX" ? `${q.change >= 0 ? "+" : "−"}${Math.abs(q.change || 0).toFixed(2)} pts` : pct(q.changePct);
       return `<div class="tile clickable-tile" data-symbol="${esc(s)}"><div class="t-name">${esc(name)}</div><div class="t-val ${q ? "" : "skeleton"}">${val}</div><div class="t-chg ${q ? cls(q.change) : ""}">${chg}</div></div>`;
     }).join("");
+    renderFearGreed();
     $("#pulseAsOf").textContent = state.quotesAt ? "Updated " + new Date(state.quotesAt).toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit" }) : "";
 
     const movers = [...p.rows].filter((r) => isNum(r.dayPct)).sort((a, b) => Math.abs(b.dayPct) - Math.abs(a.dayPct)).slice(0, 5);
@@ -1001,20 +1092,32 @@
     }).join("") : `<li class="empty-line">No recent rating changes${d.type === "ETF" ? " (ETFs aren't rated by analysts)" : ""}.</li>`;
     $("#rsNews").innerHTML = newsItems(state.research.news || []);
   }
+  const RANGE_WORDS = { "1d": "today", "5d": "past 5 days", "1mo": "past month", "3mo": "past 3 months", "6mo": "past 6 months", ytd: "year to date", "1y": "past year", "5y": "past 5 years" };
   async function renderResearchChart() {
     const sym = state.research.symbol, range = state.research.range;
     setPressed($("#rsRanges"), "range", range);
+    $("#rsRangeChange").innerHTML = `<span class="skeleton" style="display:inline-block;width:180px">&nbsp;</span>`;
     try {
       const r = await api("charts", { symbols: sym, range });
       if (state.research.symbol !== sym || state.research.range !== range) return;
-      const c = r.charts[sym]; if (!c?.points?.length) { state.charts.rsChart?.destroy(); return; }
+      const c = r.charts[sym]; if (!c?.points?.length) { state.charts.rsChart?.destroy(); $("#rsRangeChange").innerHTML = `<span class="muted small">No price history for this range</span>`; return; }
       const first = c.points[0][1], lastP = c.points.at(-1)[1];
-      const color = lastP >= first ? css("--up") : css("--down");
+      const base = range === "1d" && isNum(c.previousClose) ? c.previousClose : first;
+      const color = lastP >= base ? css("--up") : css("--down");
+      const showChange = (val, at) => {
+        const d = val - base, p = base ? (d / base) * 100 : null;
+        const when = at ? fmtDate(at, range === "1d" || range === "5d" ? { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" } : { year: "numeric", month: "short", day: "numeric" }) : RANGE_WORDS[range] || "";
+        $("#rsRangeChange").innerHTML = `<span class="rc-amt ${cls(d)}">${d >= 0 ? "+" : "−"}${money(Math.abs(d), c.currency)}</span><span class="tag ${cls(d)}">${pct(p)}</span><span class="rc-when">${at ? "to " + esc(when) : esc(when)}</span>`;
+      };
+      showChange(lastP);
       const datasets = [{ label: sym, data: c.points.map(([x, y]) => ({ x, y })), borderColor: color, fill: true, backgroundColor: (ctx) => gradient(ctx, color) }];
       const h = computeHoldings(null, "all")[sym];
       if (h?.qty > 0 && range !== "1d" && range !== "5d") datasets.push({ label: "Your average cost", data: [{ x: c.points[0][0], y: h.cost / h.qty }, { x: c.points.at(-1)[0], y: h.cost / h.qty }], borderColor: css("--text-3"), borderDash: [4, 4], borderWidth: 1, fill: false, pointRadius: 0 });
-      chart("rsChart", { type: "line", data: { datasets }, options: lineOpts({ money: true, cur: c.currency, time: range === "1d" || range === "5d" }) });
-    } catch (e) { console.warn(e); }
+      const o = lineOpts({ money: true, cur: c.currency, time: range === "1d" || range === "5d" });
+      o.onHover = (_, els) => { const e = els.find((x) => x.datasetIndex === 0); const p = e && c.points[e.index]; if (p) showChange(p[1], p[0]); else showChange(lastP); };
+      chart("rsChart", { type: "line", data: { datasets }, options: o });
+      $("#rsChart").onmouseleave = () => showChange(lastP);
+    } catch (e) { console.warn(e); $("#rsRangeChange").innerHTML = `<span class="muted small">Couldn't load the chart</span>`; }
   }
   function renderAnalyst(d, price) {
     const a = d.analyst || {};
@@ -1078,14 +1181,15 @@
     const item = (label, key, v) => `<div class="ratio-item"><div class="ratio"><span>${label}</span><span class="rv">${v}</span></div>${showRatioHelp && R[key] ? `<span class="ratio-help">${R[key]}</span>` : ""}</div>`;
     const groups = d.type === "ETF" ? [
       ["Fund", [["Net assets", "", big(s.netAssets, c)], ["Expense ratio", "expenseRatio", ratioPct(d.fund?.expenseRatio, 2)], ["Yield", "dividendYield", ratioPct(s.dividendYield, 2)], ["P/E (holdings)", "trailingPE", num(s.trailingPE)]]],
-      ["Returns & risk", [["YTD return", "", ratioPct(s.ytdReturn)], ["3-yr avg return", "", ratioPct(s.threeYearReturn)], ["Beta", "beta", num(s.beta)], ["52-week range", "", `${num(s.low52)} – ${num(s.high52)}`]]],
+      ["Returns & risk", [["YTD return", "", ratioPct(s.ytdReturn)], ["3-yr avg return", "", ratioPct(s.threeYearReturn)], ["Beta", "beta", num(s.beta)], ["52-wk range", "", `${num(s.low52)} – ${num(s.high52)}`]]],
     ] : [
       ["Valuation", [["P/E (TTM)", "trailingPE", num(s.trailingPE)], ["Forward P/E", "forwardPE", num(s.forwardPE)], ["PEG", "peg", num(s.peg)], ["Price/Book", "priceToBook", num(s.priceToBook)], ["Price/Sales", "priceToSales", num(s.priceToSales)], ["EV/EBITDA", "evToEbitda", num(s.evToEbitda)]]],
       ["Profitability", [["Gross margin", "grossMargin", ratioPct(s.grossMargin)], ["Operating margin", "operatingMargin", ratioPct(s.operatingMargin)], ["Profit margin", "profitMargin", ratioPct(s.profitMargin)], ["Return on equity", "roe", ratioPct(s.roe)], ["Return on assets", "roa", ratioPct(s.roa)]]],
       ["Financial health", [["Debt/Equity", "debtToEquity", isNum(s.debtToEquity) ? num(s.debtToEquity, 1) + "%" : "—"], ["Current ratio", "currentRatio", num(s.currentRatio)], ["Quick ratio", "quickRatio", num(s.quickRatio)], ["Cash", "", big(s.totalCash, c)], ["Debt", "", big(s.totalDebt, c)], ["Free cash flow", "", big(s.freeCashflow, c)]]],
       ["Growth & dividends", [["Revenue growth (YoY)", "revenueGrowth", ratioPct(s.revenueGrowth)], ["Earnings growth (YoY)", "earningsGrowth", ratioPct(s.earningsGrowth)], ["EPS (TTM)", "eps", num(s.eps)], ["Dividend yield", "dividendYield", ratioPct(s.dividendYield, 2)], ["Payout ratio", "payoutRatio", ratioPct(s.payoutRatio)]]],
-      ["Trading", [["Market cap", "", big(s.marketCap, c)], ["Beta", "beta", num(s.beta)], ["52-week range", "", `${num(s.low52)} – ${num(s.high52)}`], ["Avg volume", "", big(s.avgVolume)], ["Short ratio (days)", "", num(s.shortRatio)]]],
+      ["Trading", [["Market cap", "", big(s.marketCap, c)], ["Beta", "beta", num(s.beta)], ["52-wk range", "", `${num(s.low52)} – ${num(s.high52)}`], ["Avg volume", "", big(s.avgVolume)], ["Short ratio (days)", "", num(s.shortRatio)]]],
     ];
+    $("#rsRatios").className = `ratio-groups n${groups.length}`;
     $("#rsRatios").innerHTML = groups.map(([h, items]) => `<div class="ratio-group"><h3>${h}</h3>${items.map(([l, k, v]) => item(l, k, v)).join("")}</div>`).join("");
     $("#ratioHelpBtn").textContent = showRatioHelp ? "Hide explanations" : "What do these mean?";
     $("#ratioHelpBtn").setAttribute("aria-expanded", String(showRatioHelp));
@@ -1687,17 +1791,18 @@
   // ---------- Start ----------
   async function start() {
     bind();
+    document.fonts?.ready?.then(() => Object.values(state.charts).forEach((c) => { try { c?.update?.("none"); } catch { /* destroyed */ } }));
     applyTheme(false); applyPrivacy(); renderInstall(); renderProfiles();
     if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) navigator.serviceWorker.register("sw.js").catch(() => {});
     const initial = location.hash.slice(1);
     goto(initial === "earnings" ? "earnings" : $("#view-" + initial) ? initial : "overview");
     await probe();
     await loadQuotes(); renderCurrent();
-    await Promise.all([loadMarket(), loadEvents(), loadNews()]);
+    await Promise.all([loadMarket(), loadEvents(), loadNews(), loadFearGreed()]);
     renderCurrent();
     loadMeta(metaSymbols()).then(renderCurrent);
     setInterval(() => { if (document.visibilityState === "visible") loadQuotes().then(() => { if (["overview", "markets"].includes(state.tab) || (state.tab === "portfolio" && ["holdings", "rebalance", "dividends"].includes(state.pfSub))) renderCurrent(); }); }, 60000);
-    setInterval(() => { if (document.visibilityState === "visible") Promise.all([loadMarket(), loadEvents(), loadNews()]); }, 15 * 60000);
+    setInterval(() => { if (document.visibilityState === "visible") Promise.all([loadMarket(), loadEvents(), loadNews(), loadFearGreed()]).then(() => state.tab === "overview" && renderFearGreed()); }, 15 * 60000);
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
 })();
