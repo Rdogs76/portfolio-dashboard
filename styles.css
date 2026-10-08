@@ -660,3 +660,4 @@ kbd { font: 11px/1 ui-monospace, Menlo, Consolas, monospace; padding: 2px 5px; b
   .ta-table tr.ta-top td:first-child { box-shadow: none; }
   .ta-table tr.ta-top { box-shadow: inset 3px 0 0 var(--accent); }
 }
+.ta-stale { background: var(--orange-soft); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 13px; margin: 0 0 12px; }
