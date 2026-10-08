@@ -222,6 +222,24 @@
       case "search": { const q = (params.q || "").toUpperCase(); return { results: Object.keys(CATALOG).filter((k) => k.includes(q) || (CATALOG[k][2] || "").toUpperCase().includes(q)).slice(0, 8).map((k) => ({ symbol: k, name: CATALOG[k][2] || k, exchange: k.endsWith(".TO") ? "Toronto" : "NASDAQ", type: CATALOG[k][3] || "ETF" })) }; }
       case "calendar": return { events: calendar(), source: "Demo", asOf: Date.now() };
       case "market": return { series: MARKET.map(([symbol, name, group]) => ({ symbol, name, group, points: chart(symbol, "3mo").points })), asOf: Date.now() };
+      case "analysts": {
+        const sym = syms[0], q = quote(sym), r = rng(hash(sym + "ta")), D = 864e5, now = Date.now();
+        const names = ["Demo Securities", "Example Capital", "Sample & Co.", "Placeholder Partners", "Illustrative Bank", "Model Research", "Specimen Advisors", "Mock Markets", "Prototype Group", "Fictional Equity"];
+        const pick = [["Buy", "buy"], ["Outperform", "buy"], ["Overweight", "buy"], ["Hold", "hold"], ["Neutral", "hold"], ["Underperform", "sell"]];
+        const firms = names.map((firm, i) => {
+          const scored = 2 + Math.floor(r() * 12), wins = Math.round(scored * (0.35 + r() * 0.6)), g = pick[Math.floor(r() * (i < 6 ? 4 : 6))];
+          const target = +(q.price * (0.85 + r() * 0.45)).toFixed(2), prior = +(target * (0.9 + r() * 0.15)).toFixed(2);
+          const successRate = (wins / scored) * 100, avgReturn = -8 + r() * 30, score = ((wins + 2) / (scored + 4)) * 70 + Math.min(1, Math.max(0, avgReturn / 40 + 0.5)) * 30;
+          return { firm, calls: scored + 2, scored, wins, successRate, avgReturn, score, stars: Math.max(0.5, Math.min(5, Math.round(((score - 30) / 50) * 10) / 2)), active: true,
+            latest: { date: now - Math.floor(r() * 200) * D, rating: g[0], from: g[0], action: r() > 0.7 ? "up" : "main", stance: g[1] },
+            target: { value: target, prior, date: now - 20 * D, upside: (target / q.price - 1) * 100 } };
+        }).sort((a, b) => b.score - a.score);
+        const top = firms.slice(0, 6), count = { buy: 0, hold: 0, sell: 0 }; top.forEach((f) => count[f.latest.stance]++);
+        const avg = top.reduce((a, f) => a + f.target.value, 0) / top.length, all = firms.map((f) => f.target.value);
+        return { symbol: sym, price: q.price, currency: q.currency, firms, ratingsSince: now - 7 * 365 * D,
+          summary: { topFirms: top.map((f) => f.firm), consensus: count.buy >= count.hold + count.sell ? "Moderate buy" : "Hold", count, topTarget: avg, topUpside: (avg / q.price - 1) * 100, high: Math.max(...all), low: Math.min(...all), activeFirms: firms.length },
+          street: { mean: q.price * 1.08, high: Math.max(...all), low: Math.min(...all), analysts: 24 }, asOf: now };
+      }
       case "feargreed": {
         const r = (v) => (v < 25 ? "Extreme fear" : v < 45 ? "Fear" : v < 55 ? "Neutral" : v < 75 ? "Greed" : "Extreme greed");
         const parts = [["Market momentum", 31, "S&P 500 is 1.2% above its 125-day average"], ["Stock price strength", 18, "S&P 500 is 22% of the way from its 52-week low to its high"], ["Stock price breadth", 27, "The average stock has lagged the index by 1.4 pts over 20 days"], ["Market volatility", 12, "VIX is 21% above its 50-day average"], ["Safe haven demand", 24, "Stocks have lagged long-term Treasuries by 2.3 pts over 20 days"], ["Junk bond demand", 15, "Junk bonds have lagged safer bonds by 0.8 pts over 20 days"]];
