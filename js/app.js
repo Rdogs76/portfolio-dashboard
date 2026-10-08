@@ -1212,8 +1212,11 @@
       catch (e) { if (token === topAnalystsToken) box.innerHTML = `<p class="empty-line">Analyst track records couldn't be loaded right now. Try the refresh button in a minute.</p>`; return; }
       if (token !== topAnalystsToken || state.research.symbol !== sym) return;
     }
-    const cur = a.currency || d.currency, s = a.summary || {}, firms = (a.firms || []).filter((f) => f.active);
-    if (!firms.length) { box.innerHTML = `<p class="empty-line">No Wall Street firm has rated ${esc(sym)} in the past year.</p>`; return; }
+    const cur = a.currency || d.currency, s = a.summary || {};
+    let firms = (a.firms || []).filter((f) => f.active);
+    const stale = !firms.length;
+    if (stale) firms = (a.firms || []).slice().sort((x, y) => y.latest.date - x.latest.date);
+    if (!firms.length) { box.innerHTML = `<p class="empty-line">Yahoo Finance has no analyst ratings on file for ${esc(sym)}. Try the TipRanks link above.</p>`; return; }
     const top = new Set(s.topFirms || []);
     const consCls = /buy/i.test(s.consensus || "") ? "up" : /sell/i.test(s.consensus || "") ? "down" : "";
     const tile = (label, val, sub) => `<div class="ta-tile"><div class="kpi-label">${label}</div><div class="ta-val">${val}</div>${sub ? `<div class="small muted">${sub}</div>` : ""}</div>`;
@@ -1231,7 +1234,7 @@
     };
     const showAll = state.research.allAnalysts === sym;
     const list = showAll ? firms : firms.slice(0, 8);
-    box.innerHTML = `<div class="ta-tiles">
+    box.innerHTML = `${stale ? `<p class="ta-stale">No firm in Yahoo Finance's data has rated ${esc(sym)} in the past year, so these are the most recent ratings on file. Coverage of Canadian stocks is thinner here; TipRanks may have newer calls.</p>` : ""}<div class="ta-tiles"${stale ? " hidden" : ""}>
         ${tile("Top analysts say", `<span class="${consCls}">${esc(s.consensus || "—")}</span>`, `${s.count?.buy || 0} buy · ${s.count?.hold || 0} hold · ${s.count?.sell || 0} sell`)}
         ${tile("Top analysts' price target", s.topTarget ? money(s.topTarget, cur) : "—", s.topUpside != null ? `<span class="${cls(s.topUpside)}">${pct(s.topUpside, 1)} ${s.topUpside >= 0 ? "upside" : "downside"}</span> from today` : "")}
         ${tile("Target range, all firms", s.low != null ? `${money(s.low, cur, 0)} – ${money(s.high, cur, 0)}` : "—", a.street?.mean ? `Street average ${money(a.street.mean, cur)}` : "")}
