@@ -364,7 +364,7 @@
 
   async function refreshAll() {
     const btn = $("#refreshBtn"); btn.classList.add("spinning");
-    state.meta = {}; state.stockCache = {};
+    state.meta = {}; state.stockCache = {}; state.analystCache = {};
     try {
       await loadQuotes(); renderCurrent();
       await Promise.all([loadMarket(), loadEvents(), loadNews(), loadFearGreed()]);
@@ -1085,7 +1085,7 @@
     $("#rsName").textContent = `${d.name} (${sym})`;
     $("#rsPrice").textContent = money(price, d.currency);
     $("#rsChange").innerHTML = `<span class="chg ${cls(change)}">${signedMoney(change, d.currency)} (${pct(changePct)})</span>`;
-    renderAnalyst(d, price); renderEarningsCard(d); renderRatios(d); renderAbout(d);
+    renderAnalyst(d, price); renderEarningsCard(d); renderRatios(d); renderAbout(d); renderTopAnalysts(sym, d);
     $("#rsChanges").innerHTML = d.analyst?.changes?.length ? d.analyst.changes.slice(0, 8).map((c) => {
       const verb = c.action === "up" ? "Upgraded" : c.action === "down" ? "Downgraded" : c.action === "init" ? "Initiated" : c.action === "reit" ? "Reiterated" : "Maintained";
       return `<li><div class="grow"><div class="title">${esc(c.firm)}</div><div class="meta">${verb}${c.from && c.from !== c.to ? ` from ${esc(c.from)}` : ""} to <b>${esc(c.to || "—")}</b></div></div><div class="meta">${fmtDate(c.date, { month: "short", day: "numeric" })}</div></li>`;
@@ -1194,6 +1194,56 @@
     $("#ratioHelpBtn").textContent = showRatioHelp ? "Hide explanations" : "What do these mean?";
     $("#ratioHelpBtn").setAttribute("aria-expanded", String(showRatioHelp));
   }
+  // ---------- Top analysts (TipRanks-style track records) ----------
+  const tipranksUrl = (sym) => { const s = sym.toLowerCase(); return `https://www.tipranks.com/stocks/${s.endsWith(".to") ? "tse:" + s.slice(0, -3).replace(/[.-]/g, ".") : s.replace(/[.-]/g, ".")}/forecast`; };
+  const stars = (v) => v == null ? `<span class="muted small">New</span>` : `<span class="stars" style="--v:${(v / 5) * 100}%" title="${v} of 5 stars" aria-label="${v} of 5 stars">★★★★★</span>`;
+  const stanceTag = (st, text) => `<span class="tag ${st === "buy" ? "up" : st === "sell" ? "down" : "hold"}">${esc(text || "—")}</span>`;
+  let topAnalystsToken = 0;
+  async function renderTopAnalysts(sym, d) {
+    const card = $("#rsTopCard"), box = $("#rsTop");
+    $("#rsTipranks").href = tipranksUrl(sym);
+    if (d.type && d.type !== "EQUITY") { card.hidden = true; return; }
+    card.hidden = false;
+    const token = ++topAnalystsToken;
+    let a = state.analystCache?.[sym];
+    if (!a) {
+      box.innerHTML = `<div class="skeleton" style="height:160px"></div>`;
+      try { a = await api("analysts", { symbol: sym }); (state.analystCache ||= {})[sym] = a; }
+      catch (e) { if (token === topAnalystsToken) box.innerHTML = `<p class="empty-line">Analyst track records couldn't be loaded right now. Try the refresh button in a minute.</p>`; return; }
+      if (token !== topAnalystsToken || state.research.symbol !== sym) return;
+    }
+    const cur = a.currency || d.currency, s = a.summary || {}, firms = (a.firms || []).filter((f) => f.active);
+    if (!firms.length) { box.innerHTML = `<p class="empty-line">No Wall Street firm has rated ${esc(sym)} in the past year.</p>`; return; }
+    const top = new Set(s.topFirms || []);
+    const consCls = /buy/i.test(s.consensus || "") ? "up" : /sell/i.test(s.consensus || "") ? "down" : "";
+    const tile = (label, val, sub) => `<div class="ta-tile"><div class="kpi-label">${label}</div><div class="ta-val">${val}</div>${sub ? `<div class="small muted">${sub}</div>` : ""}</div>`;
+    const row = (f, i) => {
+      const t = f.target;
+      const ret = f.avgReturn == null ? "—" : `<span class="${cls(f.avgReturn)}">${pct(f.avgReturn, 1)}</span>`;
+      const verb = f.latest.action === "up" ? "Upgraded" : f.latest.action === "down" ? "Downgraded" : f.latest.action === "init" ? "Initiated" : "Reiterated";
+      return `<tr${top.has(f.firm) ? ` class="ta-top"` : ""}>
+        <td><div class="ta-firm"><span class="ta-rank">${i + 1}</span><div><b>${esc(f.firm)}</b><span>${f.calls} rating${f.calls === 1 ? "" : "s"} since ${fmtDate(a.ratingsSince, { year: "numeric" })}</span></div></div></td>
+        <td>${stars(f.stars)}<span class="ta-sub">${f.scored ? `${f.wins} of ${f.scored} calls right` : "Not enough history yet"}</span></td>
+        <td class="r">${ret}<span class="ta-sub">per call, 12 mo</span></td>
+        <td>${stanceTag(f.latest.stance, f.latest.rating)}<span class="ta-sub">${verb} ${fmtDate(f.latest.date, { month: "short", day: "numeric", year: "numeric" })}</span></td>
+        <td class="r">${t ? `<b>${money(t.value, cur)}</b> <span class="tag ${cls(t.upside)}">${pct(t.upside, 1)}</span><span class="ta-sub">${t.prior && t.prior !== t.value ? `${t.value > t.prior ? "Raised" : "Cut"} from ${money(t.prior, cur, 0)}` : "Target"}</span>` : `<span class="muted">No target</span>`}</td>
+      </tr>`;
+    };
+    const showAll = state.research.allAnalysts === sym;
+    const list = showAll ? firms : firms.slice(0, 8);
+    box.innerHTML = `<div class="ta-tiles">
+        ${tile("Top analysts say", `<span class="${consCls}">${esc(s.consensus || "—")}</span>`, `${s.count?.buy || 0} buy · ${s.count?.hold || 0} hold · ${s.count?.sell || 0} sell`)}
+        ${tile("Top analysts' price target", s.topTarget ? money(s.topTarget, cur) : "—", s.topUpside != null ? `<span class="${cls(s.topUpside)}">${pct(s.topUpside, 1)} ${s.topUpside >= 0 ? "upside" : "downside"}</span> from today` : "")}
+        ${tile("Target range, all firms", s.low != null ? `${money(s.low, cur, 0)} – ${money(s.high, cur, 0)}` : "—", a.street?.mean ? `Street average ${money(a.street.mean, cur)}` : "")}
+        ${tile("Firms covering", String(s.activeFirms || firms.length), "rated it in the past year")}
+      </div>
+      <div class="table-wrap ta-wrap"><table class="table ta-table">
+        <thead><tr><th>Firm</th><th>Track record</th><th class="r">Avg return</th><th>Latest rating</th><th class="r">Price target</th></tr></thead>
+        <tbody>${list.map(row).join("")}</tbody></table></div>
+      ${firms.length > 8 ? `<button class="link ta-more" data-all-analysts="${esc(sym)}">${showAll ? "Show top 8" : `Show all ${firms.length} firms`}</button>` : ""}
+      <p class="small muted ta-note">How this works: each buy or sell rating a firm gave ${esc(sym)} at least a year ago is checked against what the stock did over the next 12 months. A buy is "right" if the stock rose; a sell is right if it fell. "Avg return" is the gain you'd have made following each call. Highlighted rows are the top-ranked firms used for "Top analysts say". Yahoo Finance lists firms rather than individual analysts, so for named analysts and their star rankings, use the TipRanks link above. Not investment advice.</p>`;
+  }
+
   function renderAbout(d) {
     let html = "";
     if (d.fund) {
@@ -1757,6 +1807,7 @@
     // Settings
     $("#settingsBtn").addEventListener("click", openSettings);
     $("#refreshBtn").addEventListener("click", refreshAll);
+    $("#rsTop").addEventListener("click", (e) => { const b = e.target.closest("[data-all-analysts]"); if (!b) return; state.research.allAnalysts = state.research.allAnalysts === b.dataset.allAnalysts ? null : b.dataset.allAnalysts; const d = state.research.data; if (d) renderTopAnalysts(d.symbol, d); });
     $("#privacyBtn").addEventListener("click", togglePrivacy);
     $("#sBase").addEventListener("change", (e) => { state.data.settings.base = e.target.value; save(); loadQuotes().then(renderCurrent); });
     $("#sExport").addEventListener("click", exportBackup);
