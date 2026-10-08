@@ -13,6 +13,20 @@ One place to see your portfolio, live prices, key ratios, analyst ratings, earni
 | **News** | ForexFactory economic calendar for the week (filter by impact and currency, tap an event for what it means) and market headlines |
 | **Why it moved** | Recap for the last session, this week, or the past month: index and sector moves, rates, oil, the dollar, the VIX, which scheduled events landed on the down days, and what the news focused on |
 
+## New in version 2
+
+- **Accounts:** tag every transaction as TFSA, RRSP, FHSA, non-registered and so on, then filter any view by account.
+- **More transaction types:** dividends, stock splits, cash deposits and withdrawals. You can also edit any transaction.
+- **Dividends page:** projected annual income, yield, yield on cost, monthly income received and upcoming ex-dividend dates.
+- **Risk page:** volatility, Sharpe and Sortino ratios, max drawdown, beta, a correlation heat map and each holding's share of risk.
+- **Rebalancing calculator:** set target weights and see what to buy, or what to buy and sell.
+- **Tax report:** realized capital gains using adjusted cost base, with sheltered accounts kept separate. Exports to CSV.
+- **Watchlist tab:** a watchlist table, price alerts with optional desktop notifications, the earnings calendar and side-by-side comparison of up to four stocks.
+- **Ticker search:** type a company name instead of a ticker.
+- **CSV import and export:** bring in trades from a spreadsheet or broker export.
+- **Hide balances:** press **H**.
+- **Profiles:** several people can share one computer and keep separate portfolios.
+
 ## 1. Important warnings
 
 **No guarantee of accuracy.** Prices and fundamentals come from Yahoo Finance (delayed up to 15 minutes) through an unofficial library, and the calendar comes from ForexFactory's public weekly feed. Either source can change or break without notice, and figures can be wrong or missing. The "Why it moved" recap lines up price moves with events and headlines; it shows what coincided with a move, not proof of cause. Nothing here is financial advice. Check important numbers with your broker.
