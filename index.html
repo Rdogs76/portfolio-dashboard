@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Portfolio Dashboard</title>
-  <meta name="description" content="Track your portfolio, live quotes, ratios, analyst insights, earnings, the economic calendar and why the market moved.">
+  <meta name="description" content="Track your portfolio across accounts, dividends, risk and taxes, with live quotes, ratios, analyst insights, earnings, the economic calendar and why the market moved.">
   <meta name="theme-color" content="#f6f8f9" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0f1417" media="(prefers-color-scheme: dark)">
   <script>
-    // Apply the saved Light/Dark choice before the page paints, so it never flashes the wrong theme.
-    try { var t = JSON.parse(localStorage.getItem("portfolio-dashboard.v1") || "{}").settings?.theme; if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+    // Apply saved Light/Dark and privacy choices before the page paints.
+    try { var pr = JSON.parse(localStorage.getItem("portfolio-dashboard.profiles") || "null"); var k = pr && pr.active && pr.active !== "default" ? "portfolio-dashboard.p." + pr.active : "portfolio-dashboard.v1"; var s = JSON.parse(localStorage.getItem(k) || "{}").settings || {}; if (s.theme === "light" || s.theme === "dark") document.documentElement.dataset.theme = s.theme; if (s.privacy) document.documentElement.classList.add("privacy"); } catch (e) {}
   </script>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -32,16 +32,17 @@
       <div class="brand">
         <img src="icon.svg" alt="" width="28" height="28">
         <span>Portfolio</span>
+        <button class="profile-chip" id="profileChip" title="Switch profile" hidden>Me</button>
       </div>
       <nav class="tabs" id="tabs" role="tablist" aria-label="Sections">
         <button role="tab" data-tab="overview" aria-selected="true">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9v9z"/><path d="M12 3a9 9 0 0 1 9 9h-9z"/></svg><span>Overview</span></button>
         <button role="tab" data-tab="portfolio" aria-selected="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><span>Portfolio</span></button>
+        <button role="tab" data-tab="markets" aria-selected="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg><span>Watchlist</span></button>
         <button role="tab" data-tab="research" aria-selected="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Research</span></button>
-        <button role="tab" data-tab="earnings" aria-selected="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span>Earnings</span></button>
         <button role="tab" data-tab="news" aria-selected="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h13v14H6a2 2 0 0 1-2-2z"/><path d="M17 9h3v8a2 2 0 0 1-2 2"/><path d="M8 9h5M8 13h5"/></svg><span>News</span></button>
         <button role="tab" data-tab="recap" aria-selected="false">
@@ -50,6 +51,10 @@
       <div class="topbar-actions">
         <button class="icon-btn" id="installBtn" title="Install app" aria-label="Install app" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
+        </button>
+        <button class="icon-btn" id="privacyBtn" title="Hide balances (H)" aria-label="Hide balances" aria-pressed="false">
+          <svg class="eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6C3.9 8.4 2 12 2 12s3.6 7 10 7a9.6 9.6 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
         </button>
         <button class="icon-btn" id="themeBtn" title="Switch light / dark mode (T)" aria-label="Switch light or dark mode">
           <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
@@ -76,25 +81,47 @@
         <article class="card hero">
           <div class="hero-head">
             <div>
-              <div class="eyebrow">Portfolio value</div>
-              <div class="big" id="ovValue">—</div>
+              <div class="eyebrow"><span id="ovAccountLabel">All accounts</span></div>
+              <div class="big pv" id="ovValue">—</div>
               <div class="sub" id="ovDay">—</div>
+              <div class="sub small" id="ovExtra"></div>
             </div>
-            <div class="seg" id="ovReturnMode" role="group" aria-label="Return period">
-              <button data-mode="all" aria-pressed="true">All-time</button>
-              <button data-mode="day" aria-pressed="false">Today</button>
+            <div class="hero-controls">
+              <label class="sr-only" for="ovAccount">Account</label>
+              <select class="account-select" id="ovAccount"></select>
+              <div class="seg" id="ovReturnMode" role="group" aria-label="Return period">
+                <button data-mode="all" aria-pressed="true">All-time</button>
+                <button data-mode="day" aria-pressed="false">Today</button>
+              </div>
+            </div>
+          </div>
+          <div class="row gap wrap alloc-by">
+            <span class="muted small">Allocation by</span>
+            <div class="chips" id="allocBy" role="group" aria-label="Allocation by">
+              <button data-alloc="holding" aria-pressed="true">Holding</button>
+              <button data-alloc="sector" aria-pressed="false">Sector</button>
+              <button data-alloc="account" aria-pressed="false">Account</button>
+              <button data-alloc="currency" aria-pressed="false">Currency</button>
+              <button data-alloc="type" aria-pressed="false">Stocks vs ETFs</button>
             </div>
           </div>
           <div class="donut-wrap">
-            <canvas id="ovDonut" aria-label="Allocation by holding"></canvas>
+            <canvas id="ovDonut" aria-label="Allocation"></canvas>
             <div class="donut-center"><div class="pill" id="ovCenter">—</div><div class="donut-label" id="ovCenterLabel">All-time</div></div>
           </div>
           <ul class="legend" id="ovLegend"></ul>
-          <div class="empty" id="ovEmpty" hidden>
-            <p>No holdings yet. Add your first trade to see your allocation.</p>
-            <div class="row gap">
+          <div class="onboard" id="ovEmpty" hidden>
+            <h2>Welcome to your portfolio dashboard</h2>
+            <p class="muted">Get started in under a minute. Everything you enter stays in this browser.</p>
+            <ol class="onboard-steps">
+              <li><b>Add your holdings.</b> Enter each purchase with <i>Add trade</i>, or bring them all in from a spreadsheet with <i>Import CSV</i>.</li>
+              <li><b>Pick the account.</b> Tag trades as TFSA, RRSP, FHSA or non-registered to see each one separately and get a capital-gains report for taxable accounts.</li>
+              <li><b>Explore.</b> See dividends, risk, rebalancing, news and why the market moved.</li>
+            </ol>
+            <div class="row gap wrap">
               <button class="btn primary" data-action="add-trade">Add trade</button>
-              <button class="btn" data-action="load-sample">Load sample portfolio</button>
+              <button class="btn" data-action="import-csv">Import CSV</button>
+              <button class="btn" data-action="load-sample">Try a sample portfolio</button>
             </div>
           </div>
         </article>
@@ -117,12 +144,23 @@
           <ul class="list" id="ovEvents"></ul>
         </article>
         <article class="card">
-          <div class="card-head"><h2>Upcoming earnings</h2><button class="link" data-goto="earnings">All earnings</button></div>
+          <div class="card-head"><h2>Upcoming earnings</h2><button class="link" data-goto="markets" data-sub="earnings">All earnings</button></div>
           <ul class="list" id="ovEarnings"></ul>
         </article>
         <article class="card">
           <div class="card-head"><h2>Why the market moved</h2><button class="link" data-goto="recap">Full recap</button></div>
           <p class="recap-teaser" id="ovRecap">—</p>
+        </article>
+      </div>
+
+      <div class="grid g-2">
+        <article class="card">
+          <div class="card-head"><h2>Portfolio health</h2><button class="link" data-goto="portfolio" data-sub="risk">Risk details</button></div>
+          <ul class="list" id="ovHealth"></ul>
+        </article>
+        <article class="card">
+          <div class="card-head"><h2>Price alerts</h2><button class="link" data-goto="markets" data-sub="alerts">Manage alerts</button></div>
+          <ul class="list" id="ovAlerts"></ul>
         </article>
       </div>
 
@@ -135,14 +173,22 @@
     <!-- PORTFOLIO -->
     <section class="view" id="view-portfolio" role="tabpanel" hidden>
       <div class="view-head">
-        <div class="seg" id="pfSeg" role="tablist" aria-label="Portfolio sections">
+        <div class="seg scroll" id="pfSeg" role="tablist" aria-label="Portfolio sections">
           <button data-sub="holdings" aria-pressed="true">Holdings</button>
           <button data-sub="performance" aria-pressed="false">Performance</button>
+          <button data-sub="dividends" aria-pressed="false">Dividends</button>
+          <button data-sub="risk" aria-pressed="false">Risk</button>
+          <button data-sub="rebalance" aria-pressed="false">Rebalance</button>
           <button data-sub="sectors" aria-pressed="false">Sectors</button>
-          <button data-sub="trades" aria-pressed="false">Trades</button>
+          <button data-sub="activity" aria-pressed="false">Activity</button>
+          <button data-sub="gains" aria-pressed="false">Tax report</button>
         </div>
-        <button class="btn primary" data-action="add-trade">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add trade</button>
+        <div class="row gap">
+          <label class="sr-only" for="pfAccount">Account</label>
+          <select class="account-select" id="pfAccount"></select>
+          <button class="btn primary" data-action="add-trade">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add</button>
+        </div>
       </div>
 
       <div class="sub-view" data-sub="holdings">
@@ -158,10 +204,11 @@
             </table>
           </div>
           <div class="empty" id="pfEmpty" hidden>
-            <p>No holdings yet.</p>
-            <div class="row gap">
+            <p>No holdings in this view yet.</p>
+            <div class="row gap wrap">
               <button class="btn primary" data-action="add-trade">Add trade</button>
-              <button class="btn" data-action="load-sample">Load sample portfolio</button>
+              <button class="btn" data-action="import-csv">Import CSV</button>
+              <button class="btn" data-action="load-sample">Try a sample portfolio</button>
             </div>
           </div>
         </article>
@@ -187,17 +234,111 @@
                 <button data-range="1mo" aria-pressed="false">1M</button>
                 <button data-range="3mo" aria-pressed="false">3M</button>
                 <button data-range="6mo" aria-pressed="true">6M</button>
+                <button data-range="ytd" aria-pressed="false">YTD</button>
                 <button data-range="1y" aria-pressed="false">1Y</button>
                 <button data-range="2y" aria-pressed="false">2Y</button>
               </div>
             </div>
           </div>
           <div class="chart-box tall"><canvas id="perfChart" aria-label="Portfolio performance"></canvas></div>
-          <p class="muted small">Return is time-weighted, so money you add or withdraw doesn't count as a gain or loss. Values are converted to your base currency using each day's exchange rate.</p>
+          <p class="muted small">Return is time-weighted, so money you add or withdraw doesn't count as a gain or loss. Prices include reinvested dividends.</p>
         </article>
         <article class="card">
           <div class="card-head"><h2>Value vs. money invested</h2></div>
-          <div class="chart-box"><canvas id="valueChart" aria-label="Portfolio value and money invested"></canvas></div>
+          <div class="chart-box pv-chart"><canvas id="valueChart" aria-label="Portfolio value and money invested"></canvas></div>
+        </article>
+      </div>
+
+      <div class="sub-view" data-sub="dividends" hidden>
+        <div class="grid g-4 kpis" id="divKpis"></div>
+        <div class="grid g-2">
+          <article class="card">
+            <div class="card-head"><h2>Dividends received</h2><span class="muted small">Last 12 months</span></div>
+            <div class="chart-box pv-chart"><canvas id="divChart" aria-label="Dividends received by month"></canvas></div>
+            <p class="muted small" id="divReceivedNote"></p>
+          </article>
+          <article class="card">
+            <div class="card-head"><h2>Upcoming ex-dividend dates</h2></div>
+            <ul class="list" id="divUpcoming"></ul>
+            <p class="muted small">Own the shares before the ex-dividend date to receive the next payment.</p>
+          </article>
+        </div>
+        <article class="card flush">
+          <div class="table-wrap">
+            <table class="table" id="divTable">
+              <thead><tr><th>Holding</th><th class="r">Shares</th><th class="r">Annual dividend / share</th><th class="r">Yield</th><th class="r">Yield on cost</th><th class="r">Projected annual income</th><th class="r">Received (all time)</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </article>
+        <p class="muted small">Projected income uses each company's current annual dividend rate and your share count. Record dividends you're paid with <b>Add → Dividend</b> to track what you've actually received.</p>
+      </div>
+
+      <div class="sub-view" data-sub="risk" hidden>
+        <div class="row gap wrap between">
+          <p class="muted small" style="margin:0">Measured from your portfolio's daily returns. Hover or tap a number's label for what it means.</p>
+          <div class="seg" id="riskRanges" role="group" aria-label="Period">
+            <button data-range="6mo" aria-pressed="false">6M</button>
+            <button data-range="1y" aria-pressed="true">1Y</button>
+            <button data-range="2y" aria-pressed="false">2Y</button>
+          </div>
+        </div>
+        <div class="grid g-4 kpis" id="riskKpis"></div>
+        <div class="grid g-2">
+          <article class="card">
+            <div class="card-head"><h2>Drawdown</h2><span class="muted small">How far below its previous high the portfolio was</span></div>
+            <div class="chart-box"><canvas id="ddChart" aria-label="Drawdown chart"></canvas></div>
+          </article>
+          <article class="card">
+            <div class="card-head"><h2>Diversification check</h2></div>
+            <ul class="list" id="riskChecks"></ul>
+          </article>
+        </div>
+        <article class="card flush">
+          <div class="card-head pad"><h2>Risk by holding</h2></div>
+          <div class="table-wrap">
+            <table class="table" id="riskTable">
+              <thead><tr><th>Holding</th><th class="r">Weight</th><th class="r">Return</th><th class="r">Volatility</th><th class="r">Beta</th><th class="r">Max drawdown</th><th class="r">Share of risk</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </article>
+        <article class="card">
+          <div class="card-head"><h2>Correlation</h2><span class="muted small">1 = move together, 0 = unrelated, −1 = opposite. Lower numbers mean better diversification.</span></div>
+          <div class="table-wrap"><table class="corr" id="corrTable"></table></div>
+        </article>
+      </div>
+
+      <div class="sub-view" data-sub="rebalance" hidden>
+        <article class="card">
+          <div class="card-head">
+            <div><h2>Target allocation</h2><p class="muted small" style="margin:0">Set the weight you want for each holding. The plan shows what to buy or sell to get there.</p></div>
+            <div class="row gap wrap">
+              <button class="btn" id="rbEqual">Equal weights</button>
+              <button class="btn" id="rbCurrent">Use current weights</button>
+            </div>
+          </div>
+          <div class="rb-controls">
+            <div class="field">
+              <label for="rbCash">New cash to invest (<span id="rbCur">CAD</span>)</label>
+              <input id="rbCash" inputmode="decimal" value="0">
+            </div>
+            <div class="field">
+              <span class="label">Plan type</span>
+              <div class="seg" id="rbMode" role="group" aria-label="Plan type">
+                <button data-mode="buy" aria-pressed="true">Buy only</button>
+                <button data-mode="full" aria-pressed="false">Buy and sell</button>
+              </div>
+            </div>
+            <div class="rb-total" id="rbTotal"></div>
+          </div>
+          <div class="table-wrap">
+            <table class="table" id="rbTable">
+              <thead><tr><th>Holding</th><th class="r">Value</th><th class="r">Current</th><th class="r">Target</th><th class="r">Drift</th><th class="r">Action</th><th class="r">≈ Shares</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="muted small">"Buy only" uses new cash to top up underweight holdings, which avoids selling and triggering capital gains. Amounts are estimates at today's prices; this is a calculator, not advice.</p>
         </article>
       </div>
 
@@ -230,15 +371,138 @@
         </article>
       </div>
 
-      <div class="sub-view" data-sub="trades" hidden>
+      <div class="sub-view" data-sub="activity" hidden>
+        <div class="row gap wrap between">
+          <div class="chips" id="actFilter" role="group" aria-label="Activity type">
+            <button data-type="all" aria-pressed="true">All</button>
+            <button data-type="trades" aria-pressed="false">Buys &amp; sells</button>
+            <button data-type="dividend" aria-pressed="false">Dividends</button>
+            <button data-type="cash" aria-pressed="false">Cash</button>
+          </div>
+          <div class="row gap">
+            <button class="btn" data-action="import-csv">Import CSV</button>
+            <button class="btn" data-action="export-csv">Export CSV</button>
+          </div>
+        </div>
         <article class="card flush">
           <div class="table-wrap">
             <table class="table" id="tradesTable">
-              <thead><tr><th>Date</th><th>Type</th><th>Symbol</th><th class="r">Shares</th><th class="r">Price</th><th class="r">Fees</th><th class="r">Total</th><th></th></tr></thead>
+              <thead><tr><th>Date</th><th>Type</th><th>Symbol</th><th>Account</th><th class="r">Details</th><th class="r">Total</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
-          <div class="empty" id="tradesEmpty" hidden><p>No trades recorded yet.</p><button class="btn primary" data-action="add-trade">Add trade</button></div>
+          <div class="empty" id="tradesEmpty" hidden><p>Nothing recorded here yet.</p><button class="btn primary" data-action="add-trade">Add trade</button></div>
+        </article>
+      </div>
+
+      <div class="sub-view" data-sub="gains" hidden>
+        <div class="row gap wrap between">
+          <label class="select-label">Tax year <select id="gainsYear"></select></label>
+          <button class="btn" id="gainsExport">Export CSV</button>
+        </div>
+        <div class="grid g-4 kpis" id="gainsKpis"></div>
+        <article class="card flush">
+          <div class="table-wrap">
+            <table class="table" id="gainsTable">
+              <thead><tr><th>Date sold</th><th>Symbol</th><th>Account</th><th class="r">Shares</th><th class="r">Proceeds</th><th class="r">Adjusted cost base</th><th class="r">Gain / loss</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="empty" id="gainsEmpty" hidden><p>No sales in this period.</p></div>
+        </article>
+        <p class="muted small">Adjusted cost base (ACB) is pooled across all your taxable accounts for each security, the way the CRA calculates it, and includes commissions. Sales in TFSA, RRSP, FHSA and RESP accounts are tax-sheltered and listed separately. Amounts are in each trade's currency; for your return, convert US-dollar trades to CAD using the Bank of Canada rate on each trade date. This report doesn't check superficial-loss rules. Confirm with a tax professional.</p>
+      </div>
+    </section>
+
+    <!-- WATCHLIST / MARKETS -->
+    <section class="view" id="view-markets" role="tabpanel" hidden>
+      <div class="view-head">
+        <div class="seg scroll" id="mkSeg" role="tablist" aria-label="Watchlist sections">
+          <button data-sub="watchlist" aria-pressed="true">Watchlist</button>
+          <button data-sub="alerts" aria-pressed="false">Price alerts</button>
+          <button data-sub="earnings" aria-pressed="false">Earnings</button>
+          <button data-sub="compare" aria-pressed="false">Compare</button>
+        </div>
+        <form class="inline-add" id="watchAddForm">
+          <label class="sr-only" for="watchAddInput">Add to watchlist</label>
+          <input id="watchAddInput" class="ticker-input" placeholder="Add ticker, e.g. MSFT" autocapitalize="characters" spellcheck="false" autocomplete="off">
+          <button class="btn" type="submit">Add</button>
+        </form>
+      </div>
+
+      <div class="sub-view" data-sub="watchlist">
+        <article class="card flush">
+          <div class="table-wrap">
+            <table class="table" id="watchTable">
+              <thead><tr><th>Symbol</th><th class="r">Price</th><th class="r">Today</th><th>52-week range</th><th class="r">P/E</th><th class="r">Yield</th><th class="r">Market cap</th><th class="r">Next earnings</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="empty" id="watchEmpty" hidden><p>Your watchlist is empty. Add a ticker above to follow it.</p></div>
+        </article>
+      </div>
+
+      <div class="sub-view" data-sub="alerts" hidden>
+        <div class="grid g-2">
+          <article class="card">
+            <div class="card-head"><h2>New price alert</h2></div>
+            <form id="alertForm" class="alert-form" novalidate>
+              <div class="field">
+                <label for="aSymbol">Symbol</label>
+                <input id="aSymbol" class="ticker-input" autocapitalize="characters" spellcheck="false" autocomplete="off" required>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="aDir">When price goes</label>
+                  <select id="aDir"><option value="above">Above</option><option value="below">Below</option></select>
+                </div>
+                <div class="field">
+                  <label for="aPrice">Price</label>
+                  <input id="aPrice" inputmode="decimal" required>
+                </div>
+              </div>
+              <div class="error" id="aError"></div>
+              <button class="btn primary" type="submit">Create alert</button>
+            </form>
+            <div class="notify-box" id="notifyBox"></div>
+          </article>
+          <article class="card">
+            <div class="card-head"><h2>Your alerts</h2></div>
+            <ul class="list" id="alertList"></ul>
+            <p class="muted small">Alerts are checked every minute while the dashboard is open.</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="sub-view" data-sub="earnings" hidden>
+        <div class="seg" id="earnScope" role="group" aria-label="Which companies">
+          <button data-scope="all" aria-pressed="true">All</button>
+          <button data-scope="holdings" aria-pressed="false">Holdings</button>
+          <button data-scope="watchlist" aria-pressed="false">Watchlist</button>
+        </div>
+        <div id="earnList"></div>
+        <p class="muted small">Dates come from Yahoo Finance and can move. Companies confirm dates a few weeks ahead; until then the date is an estimate.</p>
+      </div>
+
+      <div class="sub-view" data-sub="compare" hidden>
+        <article class="card">
+          <div class="card-head">
+            <form class="inline-add" id="compareForm">
+              <label class="sr-only" for="compareInput">Add a stock to compare</label>
+              <input id="compareInput" class="ticker-input" placeholder="Add ticker (up to 4)" autocapitalize="characters" spellcheck="false" autocomplete="off">
+              <button class="btn" type="submit">Add</button>
+            </form>
+            <div class="seg" id="cmpRanges" role="group" aria-label="Range">
+              <button data-range="3mo" aria-pressed="false">3M</button>
+              <button data-range="1y" aria-pressed="true">1Y</button>
+              <button data-range="5y" aria-pressed="false">5Y</button>
+            </div>
+          </div>
+          <div class="chips" id="compareChips"></div>
+          <div class="chart-box tall"><canvas id="cmpChart" aria-label="Comparison chart"></canvas></div>
+        </article>
+        <article class="card flush">
+          <div class="table-wrap"><table class="table" id="cmpTable"></table></div>
         </article>
       </div>
     </section>
@@ -246,9 +510,9 @@
     <!-- RESEARCH -->
     <section class="view" id="view-research" role="tabpanel" hidden>
       <form class="search" id="searchForm" role="search">
-        <label class="sr-only" for="searchInput">Ticker symbol</label>
+        <label class="sr-only" for="searchInput">Ticker symbol or company name</label>
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input id="searchInput" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Ticker, e.g. AAPL or RY.TO">
+        <input id="searchInput" class="ticker-input" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Ticker or company, e.g. AAPL or Royal Bank">
         <button class="btn primary" type="submit">Look up</button>
       </form>
       <div class="chips" id="watchChips" aria-label="Watchlist and holdings"></div>
@@ -264,8 +528,11 @@
                 <div class="eyebrow" id="rsMeta"></div>
                 <h1 id="rsName">—</h1>
                 <div class="quote-price"><span id="rsPrice">—</span> <span id="rsChange"></span></div>
+                <div class="small muted" id="rsPosition"></div>
               </div>
               <div class="row gap wrap">
+                <button class="btn" id="rsAlert">Set alert</button>
+                <button class="btn" id="rsCompare">Compare</button>
                 <button class="btn" id="rsWatch">Add to watchlist</button>
                 <button class="btn primary" id="rsTrade">Add trade</button>
               </div>
@@ -316,24 +583,6 @@
       </div>
     </section>
 
-    <!-- EARNINGS -->
-    <section class="view" id="view-earnings" role="tabpanel" hidden>
-      <div class="view-head">
-        <div class="seg" id="earnScope" role="group" aria-label="Which companies">
-          <button data-scope="all" aria-pressed="true">All</button>
-          <button data-scope="holdings" aria-pressed="false">Holdings</button>
-          <button data-scope="watchlist" aria-pressed="false">Watchlist</button>
-        </div>
-        <form class="inline-add" id="watchAddForm">
-          <label class="sr-only" for="watchAddInput">Add to watchlist</label>
-          <input id="watchAddInput" placeholder="Add ticker to watchlist" autocapitalize="characters" spellcheck="false">
-          <button class="btn" type="submit">Add</button>
-        </form>
-      </div>
-      <div id="earnList"></div>
-      <p class="muted small">Dates come from Yahoo Finance and can move. Companies confirm dates a few weeks ahead; until then the date is an estimate.</p>
-    </section>
-
     <!-- NEWS -->
     <section class="view" id="view-news" role="tabpanel" hidden>
       <div class="view-head">
@@ -381,6 +630,7 @@
         <div class="eyebrow" id="recapPeriodLabel"></div>
         <h1 id="recapHeadline">—</h1>
         <div id="recapNarrative" class="narrative"></div>
+        <div id="recapMine" class="recap-mine"></div>
         <p class="muted small">This lines up price moves with scheduled economic events, sector performance, rates, oil and headlines. It shows what coincided with the move, which is strong evidence but not proof of cause.</p>
       </article>
       <div class="grid g-2">
@@ -412,67 +662,97 @@
   </main>
 
   <footer class="foot">
-    <p>Market data from Yahoo Finance (delayed up to 15 minutes) and the ForexFactory calendar. Information may be incomplete or wrong; it is not financial advice. Your trades are stored only in this browser.</p>
+    <p>Market data from Yahoo Finance (delayed up to 15 minutes) and the ForexFactory calendar. Information may be incomplete or wrong; it is not financial or tax advice. Your data is stored only in this browser. Shortcuts: <kbd>R</kbd> refresh · <kbd>T</kbd> theme · <kbd>H</kbd> hide balances · <kbd>N</kbd> new trade · <kbd>/</kbd> search.</p>
   </footer>
+
+  <datalist id="tickerList"></datalist>
 
   <!-- Trade drawer -->
   <div class="scrim" id="scrim" hidden></div>
   <aside class="drawer" id="tradeDrawer" role="dialog" aria-modal="true" aria-labelledby="tradeTitle" hidden>
     <form id="tradeForm" novalidate>
       <div class="drawer-head">
-        <h2 id="tradeTitle">Add trade</h2>
+        <h2 id="tradeTitle">Add transaction</h2>
         <button type="button" class="icon-btn" data-close aria-label="Close" title="Close (Esc)">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
       <div class="drawer-body">
-        <div class="seg full" role="group" aria-label="Trade type">
-          <button type="button" data-side="buy" aria-pressed="true">Buy</button>
-          <button type="button" data-side="sell" aria-pressed="false">Sell</button>
+        <div class="field-row">
+          <div class="field">
+            <label for="tType">Type</label>
+            <select id="tType">
+              <option value="buy">Buy</option>
+              <option value="sell">Sell</option>
+              <option value="dividend">Dividend received</option>
+              <option value="split">Stock split</option>
+              <option value="deposit">Cash deposit</option>
+              <option value="withdrawal">Cash withdrawal</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="tAccount">Account</label>
+            <select id="tAccount"></select>
+          </div>
         </div>
-        <div class="field">
+        <div class="field" data-for-types="buy sell dividend split">
           <label for="tSymbol">Symbol</label>
-          <input id="tSymbol" name="symbol" required autocapitalize="characters" spellcheck="false" autocomplete="off">
-          <div class="hint" id="tSymbolHint">Canadian listings end in .TO, e.g. VFV.TO</div>
+          <input id="tSymbol" class="ticker-input" autocapitalize="characters" spellcheck="false" autocomplete="off">
+          <div class="hint" id="tSymbolHint">Type a ticker or company name. Canadian listings end in .TO</div>
           <div class="error" data-for="tSymbol"></div>
         </div>
         <div class="field-row">
           <div class="field">
             <label for="tDate">Date</label>
-            <input id="tDate" name="date" type="date" required>
+            <input id="tDate" type="date">
             <div class="error" data-for="tDate"></div>
           </div>
-          <div class="field">
+          <div class="field" data-for-types="buy sell dividend deposit withdrawal">
             <label for="tCurrency">Currency</label>
-            <select id="tCurrency" name="currency"><option>CAD</option><option>USD</option></select>
+            <select id="tCurrency"><option>CAD</option><option>USD</option></select>
           </div>
         </div>
-        <div class="field-row">
+        <div class="field-row" data-for-types="buy sell">
           <div class="field">
             <label for="tQty">Shares</label>
-            <input id="tQty" name="qty" inputmode="decimal" required>
+            <input id="tQty" inputmode="decimal">
+            <button type="button" class="link small" id="tSellAll" hidden>Sell all</button>
             <div class="error" data-for="tQty"></div>
           </div>
           <div class="field">
             <label for="tPrice">Price per share</label>
-            <input id="tPrice" name="price" inputmode="decimal" required>
+            <input id="tPrice" inputmode="decimal">
             <button type="button" class="link small" id="tUseLast" hidden>Use current price</button>
             <div class="error" data-for="tPrice"></div>
           </div>
         </div>
-        <div class="field">
+        <div class="field" data-for-types="buy sell">
           <label for="tFees">Commission / fees</label>
-          <input id="tFees" name="fees" inputmode="decimal" value="0">
+          <input id="tFees" inputmode="decimal" value="0">
           <div class="error" data-for="tFees"></div>
+        </div>
+        <div class="field" data-for-types="dividend deposit withdrawal">
+          <label for="tAmount" id="tAmountLabel">Amount</label>
+          <input id="tAmount" inputmode="decimal">
+          <div class="hint" id="tAmountHint"></div>
+          <div class="error" data-for="tAmount"></div>
+        </div>
+        <div class="field" data-for-types="split">
+          <label for="tRatio">New shares for each old share</label>
+          <input id="tRatio" inputmode="decimal" placeholder="e.g. 4 for a 4-for-1 split">
+          <div class="hint">Use 0.1 for a 1-for-10 reverse split. Your total cost stays the same.</div>
+          <div class="error" data-for="tRatio"></div>
         </div>
         <div class="field">
           <label for="tNote">Note (optional)</label>
-          <input id="tNote" name="note" maxlength="140">
+          <input id="tNote" maxlength="140">
         </div>
         <div class="trade-total" id="tTotal"></div>
       </div>
       <div class="drawer-foot">
+        <button type="button" class="btn danger" id="tDelete" hidden>Delete</button>
+        <span class="spacer"></span>
         <button type="button" class="btn" data-close>Cancel</button>
-        <button type="submit" class="btn primary" id="tSubmit">Save trade</button>
+        <button type="submit" class="btn primary" id="tSubmit">Save</button>
       </div>
     </form>
   </aside>
@@ -498,6 +778,37 @@
         <select id="sBase"><option value="CAD">Canadian dollars (CAD)</option><option value="USD">US dollars (USD)</option></select>
       </div>
       <div class="field">
+        <span class="label">Profiles</span>
+        <p class="muted small">Sharing this computer? Give each person their own profile so portfolios stay separate. Anyone else can also open the same web address on their own device; their data stays on their device.</p>
+        <ul class="acct-list" id="sProfiles"></ul>
+        <form class="inline-add" id="sProfileForm">
+          <label class="sr-only" for="sProfileName">New profile name</label>
+          <input id="sProfileName" placeholder="Name, e.g. Sam" maxlength="30">
+          <button class="btn" type="submit">Add profile</button>
+        </form>
+      </div>
+      <div class="field">
+        <span class="label">Accounts</span>
+        <ul class="acct-list" id="sAccounts"></ul>
+        <form class="inline-add" id="sAccountForm">
+          <label class="sr-only" for="sAccountName">New account name</label>
+          <input id="sAccountName" list="accountSuggestions" placeholder="e.g. FHSA or Spouse TFSA" maxlength="40">
+          <datalist id="accountSuggestions"><option>TFSA</option><option>RRSP</option><option>FHSA</option><option>RESP</option><option>RRIF</option><option>LIRA</option><option>Margin</option><option>Non-registered</option></datalist>
+          <button class="btn" type="submit">Add account</button>
+        </form>
+        <p class="muted small">Accounts named TFSA, RRSP, FHSA, RESP, RRIF or LIRA are treated as tax-sheltered in the tax report.</p>
+      </div>
+      <div class="field">
+        <span class="label">Import and export</span>
+        <p class="muted small">Bring in trades from a spreadsheet or your broker's export. Columns: date, type, symbol, quantity, price, fees, currency, account, amount, note.</p>
+        <div class="row gap wrap">
+          <button class="btn" data-action="import-csv">Import CSV</button>
+          <button class="btn" data-action="export-csv">Export CSV</button>
+          <button class="btn" id="sTemplate">Download template</button>
+        </div>
+        <input type="file" id="csvInput" accept=".csv,text/csv" hidden>
+      </div>
+      <div class="field">
         <span class="label">Open it like an app</span>
         <p class="muted small" id="installText">Add the dashboard to your home screen or desktop so it opens in its own window, like any other app.</p>
         <button class="btn primary" id="sInstall" hidden>Install Portfolio Dashboard</button>
@@ -509,7 +820,7 @@
       </div>
       <div class="field">
         <span class="label">Backup</span>
-        <p class="muted small">Trades live only in this browser. Download a backup now and then, and use it to move your portfolio to another device.</p>
+        <p class="muted small">Your data lives only in this browser. Download a backup now and then, and use it to move your portfolio to another device.</p>
         <div class="row gap wrap">
           <button class="btn" id="sExport">Download backup</button>
           <label class="btn" for="sImport">Restore backup</label>
@@ -518,7 +829,7 @@
       </div>
       <div class="field danger-zone">
         <span class="label">Reset</span>
-        <button class="btn danger" id="sClear">Delete all trades…</button>
+        <button class="btn danger" id="sClear">Delete all transactions…</button>
       </div>
     </div>
   </aside>
