@@ -82,7 +82,11 @@
   function quote(sym) {
     const { meta, points } = daily(sym);
     const last = points[points.length - 1][1], prev = points[points.length - 2][1];
-    return { symbol: sym, name: meta.name, price: last, change: last - prev, changePct: (last / prev - 1) * 100, prevClose: prev, currency: meta.currency, exchange: sym.endsWith(".TO") ? "Toronto" : "NasdaqGS", type: meta.type, marketState: "REGULAR", time: points[points.length - 1][0] };
+    const closes = points.slice(-252).map((p) => p[1]); const r = rng(hash(sym + "q"));
+    const divYield = meta.type === "INDEX" || meta.type === "FUTURE" || meta.type === "CURRENCY" ? null : +(r() * 4.5).toFixed(2);
+    return { symbol: sym, name: meta.name, price: last, change: last - prev, changePct: (last / prev - 1) * 100, prevClose: prev, currency: meta.currency, exchange: sym.endsWith(".TO") ? "Toronto" : "NasdaqGS", type: meta.type, marketState: "REGULAR", time: points[points.length - 1][0],
+      high52: Math.max(...closes), low52: Math.min(...closes), pe: meta.type === "EQUITY" ? 12 + r() * 30 : null, marketCap: meta.type === "EQUITY" ? last * (1e9 + r() * 3e9) : null,
+      dividendRate: divYield ? +(last * divYield / 100).toFixed(2) : null, dividendYield: divYield };
   }
 
   function chart(sym, range) {
@@ -215,6 +219,7 @@
       case "stock": return stock(syms[0]);
       case "meta": return { meta: Object.fromEntries(syms.map((s) => [s, meta(s)])), errors: {}, asOf: Date.now() };
       case "news": return { news: news(syms), asOf: Date.now() };
+      case "search": { const q = (params.q || "").toUpperCase(); return { results: Object.keys(CATALOG).filter((k) => k.includes(q) || (CATALOG[k][2] || "").toUpperCase().includes(q)).slice(0, 8).map((k) => ({ symbol: k, name: CATALOG[k][2] || k, exchange: k.endsWith(".TO") ? "Toronto" : "NASDAQ", type: CATALOG[k][3] || "ETF" })) }; }
       case "calendar": return { events: calendar(), source: "Demo", asOf: Date.now() };
       case "market": return { series: MARKET.map(([symbol, name, group]) => ({ symbol, name, group, points: chart(symbol, "3mo").points })), asOf: Date.now() };
       default: throw new Error("Unknown demo path " + path);
