@@ -134,7 +134,9 @@
   async function api(path, params = {}) {
     if (state.demo) { await new Promise((r) => setTimeout(r, 100)); return Demo.handle(path, params); }
     const qs = new URLSearchParams(params).toString();
-    const r = await fetch(`/api/${path}${qs ? "?" + qs : ""}`);
+    let r;
+    try { r = await fetch(`/api/${path}${qs ? "?" + qs : ""}`, { signal: AbortSignal.timeout ? AbortSignal.timeout(45000) : undefined }); }
+    catch (e) { throw new Error(e?.name === "TimeoutError" ? "The data source took too long to answer" : "Couldn't reach the server. Check your internet connection"); }
     const body = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(body.error || `Request failed (${r.status})`);
     return body;
@@ -1266,8 +1268,28 @@
   async function ideasData(kind) {
     const store = state.ideasData;
     if (store[kind]?.data) return store[kind].data;
-    if (!store[kind]?.promise) store[kind] = { promise: api("ideas", kind === "stocks" ? {} : { section: kind }).then((d) => (store[kind].data = d)).catch((e) => { store[kind] = null; throw e; }) };
+    if (!store[kind]?.promise) {
+      const params = kind === "stocks" ? {} : { section: kind };
+      // One automatic retry: a cold start on the server occasionally fails the first time.
+      store[kind] = { promise: api("ideas", params).catch(() => new Promise((r) => setTimeout(r, 1500)).then(() => api("ideas", params)))
+        .then((d) => (store[kind].data = d)).catch((e) => { store[kind] = null; throw e; }) };
+    }
     return store[kind].promise;
+  }
+  const ID_LOADING = {
+    stocks: ["Finding stock ideas…", "Checking analyst estimates, growth forecasts and price trends for about 55 stocks."],
+    flows: ["Measuring where money is moving…", "Comparing 24 sectors and themes with the S&P 500."],
+    dividends: ["Loading dividend stocks…", "Pulling 5 years of prices and dividends for 44 stocks."],
+    etfs: ["Loading ETFs…", "Pulling 7 years of returns for 31 ETFs."],
+  };
+  function ideaStatus(sub, state_, err) {
+    const box = $("#idStatus-" + sub); if (!box) return;
+    if (state_ === "loading") {
+      const [t, d] = ID_LOADING[sub];
+      box.innerHTML = `<div class="status-box"><span class="spinner" aria-hidden="true"></span><div><b>${t}</b><div class="muted small">${d} The first load can take up to 30 seconds; after that it's instant.</div></div></div><div class="skeleton-rows"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>`;
+    } else if (state_ === "error") {
+      box.innerHTML = `<div class="status-box error"><div><b>This section couldn't load</b><div class="muted small">${esc((err || "Something went wrong getting the data").replace(/[.!?]?$/, "."))} Your other data is fine.</div></div><button class="btn" data-ideas-retry>Try again</button></div>`;
+    } else box.innerHTML = "";
   }
   const pctCell = (v, dec = 1) => (v == null ? `<span class="muted">—</span>` : `<span class="${cls(v)}">${pct(v, dec)}</span>`);
   const heat = (v, max = 40) => { if (v == null) return ""; const a = Math.min(1, Math.abs(v) / max); return `background:color-mix(in srgb, var(${v >= 0 ? "--up" : "--down"}) ${Math.round(12 + a * 48)}%, transparent)`; };
@@ -1280,28 +1302,30 @@
     $$("#view-ideas .sub-view").forEach((v) => (v.hidden = v.dataset.sub !== sub));
     $$("#view-ideas [data-region-filter]").forEach((g) => setPressed(g, "region", state.idRegion));
     const kind = IDEA_SRC[sub];
-    const loading = !state.ideasData[kind]?.data;
-    if (loading) {
-      const sk = `<div class="skeleton" style="height:220px"></div>`;
-      if (sub === "stocks") { $("#idList").innerHTML = sk; }
+    if (!state.ideasData[kind]?.data) {
+      if (sub === "stocks") { $("#idList").innerHTML = ""; $("#idChain").innerHTML = `<div class="skeleton" style="height:180px;width:100%"></div>`; $("#idInsight").innerHTML = ""; }
       else if (sub === "flows") { $("#flowIn").innerHTML = $("#flowOut").innerHTML = skeletonList(4); $("#flowTable").innerHTML = ""; }
-      else if (sub === "dividends") $("#divTable").innerHTML = `<tbody><tr><td>${sk}</td></tr></tbody>`;
-      else { $("#etfDivTable").innerHTML = $("#etfGrowthTable").innerHTML = `<tbody><tr><td>${sk}</td></tr></tbody>`; }
-      $("#idAsOf").textContent = "Crunching the numbers… the first load can take up to 30 seconds";
+      else if (sub === "dividends") $("#divTable").innerHTML = "";
+      else $("#etfDivTable").innerHTML = $("#etfGrowthTable").innerHTML = "";
+      ideaStatus(sub, "loading");
+      $("#idAsOf").textContent = "";
     }
+    // Warm up the other sections in the background so switching is instant.
+    setTimeout(() => Object.values(IDEA_SRC).forEach((k) => ideasData(k).catch(() => {})), 1200);
     let d;
     try { d = await ideasData(kind); }
     catch (e) {
       if (state.tab !== "ideas" || state.idSub !== sub) return;
-      $("#idAsOf").textContent = "";
-      const msg = `<p class="empty-line">This section couldn't load right now. Press the refresh button to try again.</p>`;
-      if (sub === "stocks") $("#idList").innerHTML = msg; else if (sub === "flows") $("#flowTable").innerHTML = `<tbody><tr><td>${msg}</td></tr></tbody>`;
-      else if (sub === "dividends") $("#divTable").innerHTML = `<tbody><tr><td>${msg}</td></tr></tbody>`; else $("#etfDivTable").innerHTML = `<tbody><tr><td>${msg}</td></tr></tbody>`;
+      ideaStatus(sub, "error", e.message);
+      if (sub === "flows") $("#flowIn").innerHTML = $("#flowOut").innerHTML = "";
+      if (sub === "stocks") $("#idChain").innerHTML = "";
       return;
     }
     if (state.tab !== "ideas" || state.idSub !== sub) return;
     $("#idAsOf").textContent = d.asOf ? "Updated " + new Date(d.asOf).toLocaleString("en-CA", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
-    ({ stocks: renderStockIdeas, flows: renderFlows, dividends: renderDivStocks, etfs: renderEtfs })[sub](d);
+    ideaStatus(sub, "done");
+    try { ({ stocks: renderStockIdeas, flows: renderFlows, dividends: renderDivStocks, etfs: renderEtfs })[sub](d); }
+    catch (e) { console.error(e); ideaStatus(sub, "error", "Part of the data came back in an unexpected format."); }
   }
 
   function renderStockIdeas(d) {
@@ -1871,6 +1895,7 @@
     onSeg("#divSort", "sort", (v) => { state.divSort = v; renderIdeas(); });
     $("#view-ideas").addEventListener("click", (e) => {
       const r = e.target.closest("[data-region]"); if (r) { state.idRegion = r.dataset.region; renderIdeas(); return; }
+      if (e.target.closest("[data-ideas-retry]")) { state.ideasData[IDEA_SRC[state.idSub]] = null; renderIdeas(); return; }
       if (e.target.closest("[data-ideas-more]")) { state.idShowAll = !state.idShowAll; renderIdeas(); return; }
       const s = e.target.closest("[data-symbol]"); if (s) { e.stopPropagation(); openResearch(s.dataset.symbol); }
     });
