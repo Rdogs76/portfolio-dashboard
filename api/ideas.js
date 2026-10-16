@@ -1,4 +1,7 @@
-// GET /api/ideas -> stock ideas, the AI build-out "bottleneck finder", and where money is moving.
+// GET /api/ideas                 -> stock ideas, the AI build-out "bottleneck finder", and where money is moving
+// GET /api/ideas?section=divs    -> dividend stocks (see _lib/divstocks.js)
+// GET /api/ideas?section=etfs    -> dividend ETFs and consistent performers (see _lib/funds.js)
+// (One route serves all three so the app stays within Vercel's 12-function limit on the free plan.)
 //
 // The approach follows how investors spotted memory as the bottleneck in AI infrastructure:
 // when demand at the top of a supply chain (AI spending) keeps rising, the link that can't keep up
@@ -7,6 +10,8 @@
 // measure how fast estimates are being revised, expected growth and relative strength.
 import { yf, send, fail, num, NO_VALIDATE } from "./_lib/util.js";
 import { pool, quotes, daily, ranks, clip, r1 } from "./_lib/screen.js";
+import { fundsData } from "./_lib/funds.js";
+import { divStocksData } from "./_lib/divstocks.js";
 
 const CHAIN = [
   { key: "cloud", name: "Cloud & AI spenders", role: "Demand: the companies buying AI capacity", symbols: ["MSFT", "AMZN", "GOOGL", "META", "ORCL"] },
@@ -80,6 +85,9 @@ function flowStats(bars, spy) {
 
 export default async function handler(req, res) {
   try {
+    const section = String(req.query.section || "");
+    if (section === "etfs") return send(res, 200, await fundsData(), 12 * 3600);
+    if (section === "divs") return send(res, 200, await divStocksData(), 12 * 3600);
     const chainSyms = CHAIN.flatMap((l) => l.symbols);
     const stockSyms = [...new Set([...chainSyms, ...OTHERS.map((o) => o[0])])];
     const [q, details, flowBars] = await Promise.all([
