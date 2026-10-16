@@ -19,12 +19,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261016">
+  <link rel="stylesheet" href="styles.css?v=20261016b">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
-  <script src="js/explain.js?v=20261016" defer></script>
-  <script src="js/demo.js?v=20261016" defer></script>
-  <script src="js/recap.js?v=20261016" defer></script>
-  <script src="js/app.js?v=20261016" defer></script>
+  <script src="js/explain.js?v=20261016b" defer></script>
+  <script src="js/demo.js?v=20261016b" defer></script>
+  <script src="js/recap.js?v=20261016b" defer></script>
+  <script src="js/app.js?v=20261016b" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -609,7 +609,6 @@
           <button data-sub="stocks" aria-pressed="true">Stock ideas</button>
           <button data-sub="returns" aria-pressed="false">Top returns</button>
           <button data-sub="flows" aria-pressed="false">Where money is moving</button>
-          <button data-sub="dividends" aria-pressed="false">Dividend stocks</button>
           <button data-sub="etfs" aria-pressed="false">ETFs</button>
         </div>
         <span class="muted small" id="idAsOf"></span>
@@ -667,27 +666,6 @@
           <div class="id-status" id="idStatus-flows"></div>
           <div class="table-wrap"><table class="table flow-table" id="flowTable"></table></div>
           <p class="small muted ta-note">"vs S&amp;P 500" is how much better or worse the group did than the S&amp;P 500. "Buying pressure" weighs the last 20 days' trading volume on up days against down days: positive means more money traded on up days. "Activity" compares recent trading volume with the previous three months.</p>
-        </article>
-      </div>
-
-      <div class="sub-view" data-sub="dividends" hidden>
-        <article class="card">
-          <div class="card-head ta-head">
-            <div><h2>Dividend stocks</h2><div class="muted small">Total return includes the dividends you'd have collected and reinvested</div></div>
-            <div class="chips" data-region-filter role="group" aria-label="Region">
-              <button data-region="all" aria-pressed="true">All</button><button data-region="US" aria-pressed="false">US</button><button data-region="CA" aria-pressed="false">Canada</button>
-            </div>
-          </div>
-          <div class="seg scroll div-sort" id="divSort" role="group" aria-label="Sort by">
-            <button data-sort="total1y" aria-pressed="true">1-yr total return</button>
-            <button data-sort="total5y" aria-pressed="false">5-yr total return</button>
-            <button data-sort="yield" aria-pressed="false">Highest yield</button>
-            <button data-sort="divGrowth5y" aria-pressed="false">Dividend growth</button>
-            <button data-sort="incomeScore" aria-pressed="false">Yield + growth</button>
-          </div>
-          <div class="id-status" id="idStatus-dividends"></div>
-          <div class="table-wrap"><table class="table rank-table" id="divTable"></table></div>
-          <p class="small muted ta-note">"Yield + growth" adds the dividend yield to half the 5-year dividend growth rate and marks down payout ratios over 90%. Those payouts leave little room to keep raising the dividend.</p>
         </article>
       </div>
 
