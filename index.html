@@ -630,6 +630,7 @@
               <button data-group="other" aria-pressed="false">Other sectors</button>
             </div>
           </div>
+          <div class="id-status" id="idStatus-stocks"></div>
           <div id="idList"></div>
           <p class="small muted ta-note">How ideas are scored: each stock is ranked against the others on five things. Rising profit estimates count 30%, expected earnings growth 25%, price momentum 20%, upside to analysts' targets 15% and analyst rating 10%. A high score means several signals agree. The warnings flag stocks that already look stretched or expensive.</p>
         </article>
@@ -642,6 +643,7 @@
         </div>
         <article class="card">
           <div class="card-head ta-head"><div><h2>All sectors and themes</h2><div class="muted small" id="flowRotation"></div></div></div>
+          <div class="id-status" id="idStatus-flows"></div>
           <div class="table-wrap"><table class="table flow-table" id="flowTable"></table></div>
           <p class="small muted ta-note">"vs S&amp;P 500" is how much better or worse the group did than the S&amp;P 500. "Buying pressure" weighs the last 20 days' trading volume on up days against down days: positive means more money traded on up days. "Activity" compares recent trading volume with the previous three months.</p>
         </article>
@@ -662,6 +664,7 @@
             <button data-sort="divGrowth5y" aria-pressed="false">Dividend growth</button>
             <button data-sort="incomeScore" aria-pressed="false">Yield + growth</button>
           </div>
+          <div class="id-status" id="idStatus-dividends"></div>
           <div class="table-wrap"><table class="table rank-table" id="divTable"></table></div>
           <p class="small muted ta-note">"Yield + growth" adds the dividend yield to half the 5-year dividend growth rate and marks down payout ratios over 90%. Those payouts leave little room to keep raising the dividend.</p>
         </article>
@@ -673,6 +676,7 @@
             <button data-region="all" aria-pressed="true">All</button><button data-region="US" aria-pressed="false">US</button><button data-region="CA" aria-pressed="false">Canada</button>
           </div>
         </div>
+        <div class="id-status" id="idStatus-etfs"></div>
         <article class="card">
           <div class="card-head ta-head"><div><h2>Top dividend ETFs</h2><div class="muted small">Ranked by 5-year total return, with extra credit for yield</div></div></div>
           <div class="table-wrap"><table class="table rank-table" id="etfDivTable"></table></div>
