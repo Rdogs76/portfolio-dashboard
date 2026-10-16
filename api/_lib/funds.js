@@ -12,6 +12,13 @@ const GROWTH = [
   ["XQQ.TO", "CA"], ["VFV.TO", "CA"], ["XEQT.TO", "CA"], ["TEC.TO", "CA"], ["XIT.TO", "CA"],
 ];
 
+// Sector and theme ETFs: only used for the "best returns" list.
+const THEMES = [
+  ["XLE", "US"], ["XLF", "US"], ["XLI", "US"], ["XLV", "US"], ["XLU", "US"], ["ITA", "US"], ["URA", "US"], ["COPX", "US"],
+  ["GLD", "US"], ["GDX", "US"], ["IGV", "US"], ["XBI", "US"], ["XHB", "US"], ["PAVE", "US"], ["ARKK", "US"], ["IWM", "US"],
+  ["ZEB.TO", "CA"], ["XGD.TO", "CA"], ["ZEO.TO", "CA"], ["XIU.TO", "CA"],
+];
+
 async function fund(symbol) {
   const [m, s] = await Promise.all([
     monthly(symbol, 7.2),
@@ -32,7 +39,7 @@ async function fund(symbol) {
 
 export async function fundsData() {
   {
-    const all = [...DIVIDEND, ...GROWTH];
+    const all = [...DIVIDEND, ...GROWTH, ...THEMES];
     const data = await pool(all.map((x) => x[0]), 10, fund);
     const by = Object.fromEntries(data.filter(Boolean).map((f) => [f.symbol, f]));
     const spy = by.SPY;
@@ -60,6 +67,10 @@ export async function fundsData() {
       return { ...f, avgYear: r1(avg), worstYear: r1(worst), beats, upYears, yearsCounted: ys.length, consistency: r1(score) };
     }).sort((a, b) => (b.consistency ?? -999) - (a.consistency ?? -999));
 
-    return { dividend, growth, benchmark: spy ? { symbol: "SPY", years: spy.years.slice(-5).map((y) => ({ year: y.year, ret: r1(y.ret) })) } : null, asOf: Date.now() };
+    const kind = {}; for (const [s] of DIVIDEND) kind[s] = "Dividend"; for (const [s] of GROWTH) kind[s] = "Growth"; for (const [s] of THEMES) kind[s] = "Sector & theme";
+    const returns = all.map(([s, reg]) => by[s] && tidy(by[s], reg)).filter(Boolean)
+      .map((f) => ({ symbol: f.symbol, name: f.name, region: f.region, kind: kind[f.symbol], yield: f.yield, expense: f.expense, ytd: f.ytd, total1y: f.total1y, total3y: f.total3y, total5y: f.total5y }))
+      .sort((a, b) => (b.total1y ?? -999) - (a.total1y ?? -999));
+    return { dividend, growth, returns, benchmark: spy ? { symbol: "SPY", years: spy.years.slice(-5).map((y) => ({ year: y.year, ret: r1(y.ret) })) } : null, asOf: Date.now() };
   }
 }
