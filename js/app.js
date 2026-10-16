@@ -114,7 +114,7 @@
   const state = {
     data: load(), demo: false, live: null,
     quotes: {}, meta: {}, market: null, events: null, news: null, quotesAt: null,
-    tab: "overview", ovMode: "all", allocBy: "holding", pfSub: "holdings", mkSub: "watchlist", idSub: "stocks", idGroup: "all", idRegion: "all", divSort: "total1y", ideasData: {},
+    tab: "overview", ovMode: "all", allocBy: "holding", pfSub: "holdings", mkSub: "watchlist", idSub: "stocks", idGroup: "all", idRegion: "all", divSort: "total1y", retPeriod: "total1y", ideasData: {},
     perfRange: "6mo", riskRange: "1y", cmpRange: "1y", sectorGroup: "all", newsSub: "calendar", newsFilter: "all", actFilter: "all",
     calDay: null, recapPeriod: "week", earnScope: "all", rbMode: "buy", gainsYear: null,
     research: { symbol: null, range: "1y", data: null }, charts: {}, stockCache: {},
@@ -1264,7 +1264,7 @@
   }
 
   // ---------- Ideas: stock ideas, money flow, dividend stocks, ETFs ----------
-  const IDEA_SRC = { stocks: "stocks", flows: "stocks", dividends: "divs", etfs: "etfs" };
+  const IDEA_SRC = { stocks: "stocks", returns: "returns", flows: "stocks", dividends: "divs", etfs: "etfs" };
   async function ideasData(kind) {
     const store = state.ideasData;
     if (store[kind]?.data) return store[kind].data;
@@ -1278,9 +1278,10 @@
   }
   const ID_LOADING = {
     stocks: ["Finding stock ideas…", "Checking analyst estimates, growth forecasts and price trends for about 55 stocks."],
+    returns: ["Ranking stocks by return…", "Pulling 5 years of prices and dividends for about 80 stocks."],
     flows: ["Measuring where money is moving…", "Comparing 24 sectors and themes with the S&P 500."],
     dividends: ["Loading dividend stocks…", "Pulling 5 years of prices and dividends for 44 stocks."],
-    etfs: ["Loading ETFs…", "Pulling 7 years of returns for 31 ETFs."],
+    etfs: ["Loading ETFs…", "Pulling 7 years of returns for about 50 ETFs."],
   };
   function ideaStatus(sub, state_, err) {
     const box = $("#idStatus-" + sub); if (!box) return;
@@ -1301,12 +1302,14 @@
     setPressed($("#idSeg"), "sub", sub);
     $$("#view-ideas .sub-view").forEach((v) => (v.hidden = v.dataset.sub !== sub));
     $$("#view-ideas [data-region-filter]").forEach((g) => setPressed(g, "region", state.idRegion));
+    $$("#view-ideas [data-period-seg]").forEach((g) => setPressed(g, "period", state.retPeriod));
     const kind = IDEA_SRC[sub];
     if (!state.ideasData[kind]?.data) {
       if (sub === "stocks") { $("#idList").innerHTML = ""; $("#idChain").innerHTML = `<div class="skeleton" style="height:180px;width:100%"></div>`; $("#idInsight").innerHTML = ""; }
       else if (sub === "flows") { $("#flowIn").innerHTML = $("#flowOut").innerHTML = skeletonList(4); $("#flowTable").innerHTML = ""; }
       else if (sub === "dividends") $("#divTable").innerHTML = "";
-      else $("#etfDivTable").innerHTML = $("#etfGrowthTable").innerHTML = "";
+      else if (sub === "returns") $("#retTable").innerHTML = "";
+      else $("#etfDivTable").innerHTML = $("#etfGrowthTable").innerHTML = $("#etfRetTable").innerHTML = "";
       ideaStatus(sub, "loading");
       $("#idAsOf").textContent = "";
     }
@@ -1324,7 +1327,7 @@
     if (state.tab !== "ideas" || state.idSub !== sub) return;
     $("#idAsOf").textContent = d.asOf ? "Updated " + new Date(d.asOf).toLocaleString("en-CA", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
     ideaStatus(sub, "done");
-    try { ({ stocks: renderStockIdeas, flows: renderFlows, dividends: renderDivStocks, etfs: renderEtfs })[sub](d); }
+    try { ({ stocks: renderStockIdeas, returns: renderReturns, flows: renderFlows, dividends: renderDivStocks, etfs: renderEtfs })[sub](d); }
     catch (e) { console.error(e); ideaStatus(sub, "error", "Part of the data came back in an unexpected format."); }
   }
 
@@ -1364,6 +1367,19 @@
       </li>`).join("")}</ol>${list.length > 12 ? `<button class="link ta-more" data-ideas-more>${state.idShowAll ? "Show top 12" : `Show all ${list.length}`}</button>` : ""}` : `<p class="empty-line">No stocks in this group right now.</p>`;
   }
 
+  const PERIOD_LABEL = { ytd: "Year to date", total1y: "1 year", total3y: "3 years / yr", total5y: "5 years / yr" };
+  const retCols = (k) => ["ytd", "total1y", "total3y", "total5y"].map((c) => `<th class="r">${PERIOD_LABEL[c]}</th>`).join("");
+  const retCells = (x, k) => ["ytd", "total1y", "total3y", "total5y"].map((c) => `<td class="r ${c === k ? "sorted" : ""}">${c === k ? `<b>${pctCell(x[c])}</b>` : pctCell(x[c])}</td>`).join("");
+  function renderReturns(d) {
+    const k = state.retPeriod;
+    const rows = (d.stocks || []).filter((s) => regionOk(s.region)).sort((a, b) => (b[k] ?? -999) - (a[k] ?? -999));
+    const show = state.retShowAll ? rows : rows.slice(0, 25);
+    $("#retTable").innerHTML = `<thead><tr><th>#</th><th>Stock</th>${retCols(k)}<th class="r">Dividend yield</th></tr></thead><tbody>${show.map((s, i) => `<tr class="clickable" data-symbol="${esc(s.symbol)}">
+      <td class="muted">${i + 1}</td><td>${symCell(s.symbol, s.name)}</td>${retCells(s, k)}
+      <td class="r">${s.yield ? s.yield.toFixed(1) + "%" : `<span class="muted">—</span>`}</td></tr>`).join("")}</tbody>
+      ${rows.length > 25 ? `<tfoot><tr><td colspan="7"><button class="link" data-ret-more>${state.retShowAll ? "Show top 25" : `Show all ${rows.length}`}</button></td></tr></tfoot>` : ""}`;
+  }
+
   function renderFlows(d) {
     const f = d.flows || [];
     const item = (x) => `<li><div class="grow"><div class="title">${esc(x.name)} <span class="muted small">${esc(x.symbol)}</span></div><div class="meta">1 month ${pct(x.rel1m, 1)} vs S&P 500 · buying pressure ${pct(x.pressure, 0)}</div></div><div class="flow-score ${x.flowScore >= 50 ? "up" : "down"}">${x.flowScore}</div></li>`;
@@ -1391,6 +1407,13 @@
   }
 
   function renderEtfs(d) {
+    const k = state.retPeriod;
+    const rr = (d.returns || []).filter((f) => regionOk(f.region)).sort((a, b) => (b[k] ?? -999) - (a[k] ?? -999));
+    const showR = state.etfShowAll ? rr : rr.slice(0, 15);
+    $("#etfRetTable").innerHTML = `<thead><tr><th>#</th><th>ETF</th><th>Type</th>${retCols(k)}<th class="r">Yield</th><th class="r">Fee</th></tr></thead><tbody>${showR.map((f, i) => `<tr class="clickable" data-symbol="${esc(f.symbol)}">
+      <td class="muted">${i + 1}</td><td>${symCell(f.symbol, f.name)}</td><td><span class="tag acct">${esc(f.kind || "")}</span></td>${retCells(f, k)}
+      <td class="r">${f.yield == null ? "—" : f.yield.toFixed(1) + "%"}</td><td class="r">${f.expense == null ? "—" : f.expense.toFixed(2) + "%"}</td></tr>`).join("")}</tbody>
+      ${rr.length > 15 ? `<tfoot><tr><td colspan="10"><button class="link" data-etf-more>${state.etfShowAll ? "Show top 15" : `Show all ${rr.length}`}</button></td></tr></tfoot>` : ""}`;
     const div = (d.dividend || []).filter((f) => regionOk(f.region));
     $("#etfDivTable").innerHTML = `<thead><tr><th>#</th><th>ETF</th><th class="r">Yield</th><th class="r">Fee</th><th class="r">1-yr total return</th><th class="r">5-yr total return / yr</th><th class="r">Payout growth / yr</th></tr></thead><tbody>${div.map((f, i) => `<tr class="clickable" data-symbol="${esc(f.symbol)}">
       <td class="muted">${i + 1}</td><td>${symCell(f.symbol, f.name)}</td><td class="r"><b>${f.yield == null ? "—" : f.yield.toFixed(1) + "%"}</b></td>
@@ -1896,6 +1919,9 @@
     $("#view-ideas").addEventListener("click", (e) => {
       const r = e.target.closest("[data-region]"); if (r) { state.idRegion = r.dataset.region; renderIdeas(); return; }
       if (e.target.closest("[data-ideas-retry]")) { state.ideasData[IDEA_SRC[state.idSub]] = null; renderIdeas(); return; }
+      const per = e.target.closest("[data-period]"); if (per) { state.retPeriod = per.dataset.period; renderIdeas(); return; }
+      if (e.target.closest("[data-ret-more]")) { state.retShowAll = !state.retShowAll; renderIdeas(); return; }
+      if (e.target.closest("[data-etf-more]")) { state.etfShowAll = !state.etfShowAll; renderIdeas(); return; }
       if (e.target.closest("[data-ideas-more]")) { state.idShowAll = !state.idShowAll; renderIdeas(); return; }
       const s = e.target.closest("[data-symbol]"); if (s) { e.stopPropagation(); openResearch(s.dataset.symbol); }
     });
@@ -1998,6 +2024,16 @@
   }
 
   // ---------- Start ----------
+  // If something breaks, say so on screen instead of leaving a section stuck on "loading".
+  let errShown = 0;
+  function reportError(msg) {
+    if (Date.now() - errShown < 8000) return; errShown = Date.now();
+    console.error(msg);
+    try { toast(`Something went wrong (${String(msg).slice(0, 80)}). Press R or the refresh button to try again.`); } catch { /* toast not ready */ }
+  }
+  window.addEventListener("error", (e) => reportError(e.message || "script error"));
+  window.addEventListener("unhandledrejection", (e) => reportError(e.reason?.message || e.reason || "request failed"));
+
   async function start() {
     bind();
     document.fonts?.ready?.then(() => Object.values(state.charts).forEach((c) => { try { c?.update?.("none"); } catch { /* destroyed */ } }));
