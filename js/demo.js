@@ -222,6 +222,39 @@
       case "search": { const q = (params.q || "").toUpperCase(); return { results: Object.keys(CATALOG).filter((k) => k.includes(q) || (CATALOG[k][2] || "").toUpperCase().includes(q)).slice(0, 8).map((k) => ({ symbol: k, name: CATALOG[k][2] || k, exchange: k.endsWith(".TO") ? "Toronto" : "NASDAQ", type: CATALOG[k][3] || "ETF" })) }; }
       case "calendar": return { events: calendar(), source: "Demo", asOf: Date.now() };
       case "market": return { series: MARKET.map(([symbol, name, group]) => ({ symbol, name, group, points: chart(symbol, "3mo").points })), asOf: Date.now() };
+      case "ideas": {
+        if (params.section === "divs") return handle("divstocks", {});
+        if (params.section === "etfs") return handle("funds", {});
+        const r = rng(hash("ideas" + new Date().toDateString())), R = (a, b) => +(a + r() * (b - a)).toFixed(1);
+        const chain = [["cloud", "Cloud & AI spenders", "Demand: the companies buying AI capacity", ["MSFT", "AMZN", "GOOGL", "META"]], ["compute", "AI chips", "GPUs and custom accelerators", ["NVDA", "AMD", "AVGO"]], ["memory", "Memory & storage", "HBM, DRAM and flash that feed the chips", ["MU", "WDC", "STX"]], ["foundry", "Foundry & equipment", "Making and packaging the chips", ["TSM", "ASML", "AMAT"]], ["network", "Networking & optics", "Moving data between chips and racks", ["ANET", "COHR", "CLS.TO"]], ["power", "Power & grid", "Electricity for data centres", ["VST", "CEG", "GEV", "CCO.TO"]], ["cooling", "Cooling & data centres", "Buildings, cooling and racks", ["VRT", "EQIX"]]];
+        const others = [["LLY", "Healthcare"], ["JPM", "Financials"], ["COST", "Consumer"], ["PLTR", "Technology"], ["SHOP.TO", "Canada"], ["CSU.TO", "Canada"], ["RY.TO", "Canada"], ["CNQ.TO", "Canada"]];
+        const stocks = [...chain.flatMap(([key, , , syms]) => syms.map((sym) => [sym, "AI build-out", key])), ...others.map(([sym, g]) => [sym, g, null])].map(([sym, group, link]) => {
+          const boost = link === "memory" ? 30 : link === "power" ? 12 : 0;
+          const st = { symbol: sym, name: info(sym).name, group, link, rev90: R(-6, 18) + boost, growthNext: R(-5, 45) + boost, upside: R(-8, 30), recMean: R(1.4, 3), chg1y: R(-20, 80) + boost, vs200: R(-10, 35), forwardPE: R(12, 60) };
+          st.rating = st.recMean <= 1.5 ? "Strong buy" : st.recMean <= 2.5 ? "Buy" : "Hold"; st.analysts = 20 + Math.floor(r() * 20);
+          st.score = Math.round(Math.min(99, Math.max(5, 30 + st.rev90 + st.growthNext * 0.4 + st.upside * 0.4 - st.recMean * 4)));
+          st.why = [st.rev90 > 3 && `Analysts raised next year's profit estimate ${st.rev90.toFixed(0)}% in 90 days`, st.growthNext > 10 && `Profit expected to grow ${st.growthNext.toFixed(0)}% next year`, st.chg1y > 15 && `Up ${st.chg1y.toFixed(0)}% in a year`, st.upside > 8 && `Analysts' average target is ${st.upside.toFixed(0)}% above today's price`].filter(Boolean).slice(0, 3);
+          st.risks = [st.vs200 > 30 && `Stretched: ${st.vs200.toFixed(0)}% above its 200-day average`, st.forwardPE > 45 && `Expensive: ${st.forwardPE.toFixed(0)}× next year's earnings`].filter(Boolean);
+          return st;
+        }).sort((a, b) => b.score - a.score);
+        const med = (xs) => { const v = xs.slice().sort((a, b) => a - b); return v[v.length >> 1]; };
+        const links = chain.map(([key, name, role]) => { const ss = stocks.filter((s) => s.link === key); return { key, name, role, rev90: med(ss.map((s) => s.rev90)), growthNext: med(ss.map((s) => s.growthNext)), chg1y: med(ss.map((s) => s.chg1y)), stocks: ss.map((s) => ({ symbol: s.symbol, name: s.name, score: s.score })) }; });
+        links.forEach((l) => (l.pressure = Math.round(Math.min(100, Math.max(5, 40 + l.rev90 * 1.5)))));
+        const flows = [["SMH", "Semiconductors"], ["XLK", "Technology"], ["XLU", "Utilities"], ["URA", "Uranium"], ["COPX", "Copper miners"], ["GLD", "Gold"], ["XLF", "Financials"], ["XLV", "Healthcare"], ["XLE", "Energy"], ["XLP", "Consumer staples"], ["XLRE", "Real estate"], ["TLT", "Long-term bonds"]].map(([symbol, name], i) => ({ symbol, name, rel1m: R(-6, 8) - i * 0.6, rel3m: R(-10, 14) - i, pressure: R(-30, 40) - i * 3, volSurge: R(-20, 40), flowScore: Math.max(3, 95 - i * 8) }));
+        return { stocks, links, flows, insight: "Demo: Memory & storage is under the most pressure right now: analysts have raised next year's profit estimates for this group faster than for the AI spenders themselves, a sign that demand is outrunning what this link can supply.", rotation: "Demo: money is moving into semiconductors, technology and utilities and out of long-term bonds, real estate and consumer staples.", asOf: Date.now() };
+      }
+      case "divstocks": {
+        const list = [["JNJ", "US"], ["PG", "US"], ["KO", "US"], ["ABBV", "US"], ["XOM", "US"], ["O", "US"], ["VZ", "US"], ["MCD", "US"], ["TXN", "US"], ["AVGO", "US"], ["RY.TO", "CA"], ["TD.TO", "CA"], ["BNS.TO", "CA"], ["ENB.TO", "CA"], ["FTS.TO", "CA"], ["BCE.TO", "CA"], ["CNQ.TO", "CA"], ["SU.TO", "CA"], ["MFC.TO", "CA"], ["CU.TO", "CA"]];
+        const stocks = list.map(([sym, region]) => { const r = rng(hash(sym + "div")), R = (a, b) => +(a + r() * (b - a)).toFixed(1); const yld = R(1.2, 7.2), dg = R(-2, 12), payout = R(30, 110); return { symbol: sym, name: info(sym).name, region, yield: yld, total1y: R(-12, 35), price1y: R(-15, 30), total5y: R(-2, 18), divGrowth5y: dg, payout, incomeScore: +(yld + Math.min(dg, 15) * 0.5 + (payout > 90 ? -2 : 0)).toFixed(1) }; });
+        return { stocks, asOf: Date.now() };
+      }
+      case "funds": {
+        const y0 = new Date().getFullYear();
+        const mk = (sym, region, name, yr) => { const r = rng(hash(sym + "fund")), R = (a, b) => +(a + r() * (b - a)).toFixed(1); return { symbol: sym, region, name, yield: R(...yr), expense: +(0.03 + r() * 0.5).toFixed(2), total1y: R(-5, 30), total5y: R(4, 18), divGrowth5y: R(0, 10), ytd: R(-5, 25), years: [5, 4, 3, 2, 1].map((k) => ({ year: y0 - k, ret: R(-25, 45), beat: r() > 0.45 })) }; };
+        const dividend = [["SCHD", "US", "Schwab US Dividend Equity"], ["VYM", "US", "Vanguard High Dividend Yield"], ["DGRO", "US", "iShares Core Dividend Growth"], ["JEPI", "US", "JPMorgan Equity Premium Income"], ["VDY.TO", "CA", "Vanguard FTSE Canadian High Dividend"], ["XEI.TO", "CA", "iShares S&P/TSX Composite High Dividend"], ["ZDV.TO", "CA", "BMO Canadian Dividend"]].map(([s, r, n]) => mk(s, r, n, [2, 7])).sort((a, b) => b.total5y - a.total5y);
+        const growth = [["QQQ", "US", "Invesco QQQ"], ["VGT", "US", "Vanguard Information Technology"], ["SMH", "US", "VanEck Semiconductor"], ["SCHG", "US", "Schwab US Large-Cap Growth"], ["SPY", "US", "SPDR S&P 500"], ["XQQ.TO", "CA", "iShares NASDAQ 100 (CAD-hedged)"], ["VFV.TO", "CA", "Vanguard S&P 500 Index"], ["XEQT.TO", "CA", "iShares Core Equity Portfolio"]].map(([s, r, n]) => mk(s, r, n, [0.2, 1.5])).map((f) => { const ys = f.years.map((y) => y.ret); return { ...f, avgYear: +(ys.reduce((a, b) => a + b, 0) / ys.length).toFixed(1), worstYear: Math.min(...ys), beats: f.years.filter((y) => y.beat).length, yearsCounted: ys.length }; }).sort((a, b) => b.avgYear + b.beats * 2.5 - (a.avgYear + a.beats * 2.5));
+        return { dividend, growth, benchmark: { symbol: "SPY", years: [5, 4, 3, 2, 1].map((k) => ({ year: y0 - k, ret: 12 })) }, asOf: Date.now() };
+      }
       case "analysts": {
         const sym = syms[0], q = quote(sym), r = rng(hash(sym + "ta")), D = 864e5, now = Date.now();
         const names = ["Demo Securities", "Example Capital", "Sample & Co.", "Placeholder Partners", "Illustrative Bank", "Model Research", "Specimen Advisors", "Mock Markets", "Prototype Group", "Fictional Equity"];
