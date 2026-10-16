@@ -1264,7 +1264,7 @@
   }
 
   // ---------- Ideas: stock ideas, money flow, dividend stocks, ETFs ----------
-  const IDEA_SRC = { stocks: "stocks", returns: "returns", flows: "stocks", dividends: "divs", etfs: "etfs" };
+  const IDEA_SRC = { stocks: "stocks", returns: "returns", flows: "stocks", etfs: "etfs" };
   async function ideasData(kind) {
     const store = state.ideasData;
     if (store[kind]?.data) return store[kind].data;
@@ -1298,6 +1298,7 @@
   const symCell = (sym, name, extra = "") => `<div class="sym">${avatar(sym)}<div><b>${esc(sym)}</b><span>${esc(name || "")}</span>${extra}</div></div>`;
 
   async function renderIdeas() {
+    if (!IDEA_SRC[state.idSub]) state.idSub = "stocks";
     const sub = state.idSub;
     setPressed($("#idSeg"), "sub", sub);
     $$("#view-ideas .sub-view").forEach((v) => (v.hidden = v.dataset.sub !== sub));
@@ -1915,7 +1916,6 @@
     onSeg("#mkSeg", "sub", (v) => { state.mkSub = v; renderMarkets(); });
     onSeg("#idSeg", "sub", (v) => { state.idSub = v; renderIdeas(); });
     onSeg("#idFilter", "group", (v) => { state.idGroup = v; state.idShowAll = false; renderIdeas(); });
-    onSeg("#divSort", "sort", (v) => { state.divSort = v; renderIdeas(); });
     $("#view-ideas").addEventListener("click", (e) => {
       const r = e.target.closest("[data-region]"); if (r) { state.idRegion = r.dataset.region; renderIdeas(); return; }
       if (e.target.closest("[data-ideas-retry]")) { state.ideasData[IDEA_SRC[state.idSub]] = null; renderIdeas(); return; }
