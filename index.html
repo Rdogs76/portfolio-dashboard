@@ -19,12 +19,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20261016">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
-  <script src="js/explain.js" defer></script>
-  <script src="js/demo.js" defer></script>
-  <script src="js/recap.js" defer></script>
-  <script src="js/app.js" defer></script>
+  <script src="js/explain.js?v=20261016" defer></script>
+  <script src="js/demo.js?v=20261016" defer></script>
+  <script src="js/recap.js?v=20261016" defer></script>
+  <script src="js/app.js?v=20261016" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -607,6 +607,7 @@
       <div class="view-head">
         <div class="seg scroll" id="idSeg" role="tablist" aria-label="Ideas sections">
           <button data-sub="stocks" aria-pressed="true">Stock ideas</button>
+          <button data-sub="returns" aria-pressed="false">Top returns</button>
           <button data-sub="flows" aria-pressed="false">Where money is moving</button>
           <button data-sub="dividends" aria-pressed="false">Dividend stocks</button>
           <button data-sub="etfs" aria-pressed="false">ETFs</button>
@@ -633,6 +634,26 @@
           <div class="id-status" id="idStatus-stocks"></div>
           <div id="idList"></div>
           <p class="small muted ta-note">How ideas are scored: each stock is ranked against the others on five things. Rising profit estimates count 30%, expected earnings growth 25%, price momentum 20%, upside to analysts' targets 15% and analyst rating 10%. A high score means several signals agree. The warnings flag stocks that already look stretched or expensive.</p>
+        </article>
+      </div>
+
+      <div class="sub-view" data-sub="returns" hidden>
+        <article class="card">
+          <div class="card-head ta-head">
+            <div><h2>Best-returning stocks</h2><div class="muted small">About 80 large US and Canadian stocks ranked by total return (price gains plus dividends)</div></div>
+            <div class="chips" data-region-filter role="group" aria-label="Region">
+              <button data-region="all" aria-pressed="true">All</button><button data-region="US" aria-pressed="false">US</button><button data-region="CA" aria-pressed="false">Canada</button>
+            </div>
+          </div>
+          <div class="seg scroll div-sort" data-period-seg role="group" aria-label="Return period">
+            <button data-period="ytd" aria-pressed="false">Year to date</button>
+            <button data-period="total1y" aria-pressed="true">1 year</button>
+            <button data-period="total3y" aria-pressed="false">3 years</button>
+            <button data-period="total5y" aria-pressed="false">5 years</button>
+          </div>
+          <div class="id-status" id="idStatus-returns"></div>
+          <div class="table-wrap"><table class="table rank-table" id="retTable"></table></div>
+          <p class="small muted ta-note">3- and 5-year figures are yearly averages (compound annual returns). Big past winners can also fall hard, so check the Stock ideas tab and Research for whether profits are still growing. Past returns don't guarantee future ones.</p>
         </article>
       </div>
 
@@ -677,6 +698,16 @@
           </div>
         </div>
         <div class="id-status" id="idStatus-etfs"></div>
+        <article class="card">
+          <div class="card-head ta-head"><div><h2>Best-returning ETFs</h2><div class="muted small">Every ETF here, including sector and theme funds, ranked by total return</div></div></div>
+          <div class="seg scroll div-sort" data-period-seg role="group" aria-label="Return period">
+            <button data-period="ytd" aria-pressed="false">Year to date</button>
+            <button data-period="total1y" aria-pressed="true">1 year</button>
+            <button data-period="total3y" aria-pressed="false">3 years</button>
+            <button data-period="total5y" aria-pressed="false">5 years</button>
+          </div>
+          <div class="table-wrap"><table class="table rank-table" id="etfRetTable"></table></div>
+        </article>
         <article class="card">
           <div class="card-head ta-head"><div><h2>Top dividend ETFs</h2><div class="muted small">Ranked by 5-year total return, with extra credit for yield</div></div></div>
           <div class="table-wrap"><table class="table rank-table" id="etfDivTable"></table></div>
