@@ -750,3 +750,4 @@ kbd { font: 11px/1 ui-monospace, Menlo, Consolas, monospace; padding: 2px 5px; b
 .spinner { width: 20px; height: 20px; border-radius: 50%; border: 2.5px solid var(--border); border-top-color: var(--accent); animation: spin .8s linear infinite; flex: none; }
 .skeleton-rows { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .skeleton-rows .skeleton { height: 44px; width: 100%; }
+.rank-table tfoot td { border-bottom: 0; padding-top: 12px; }
