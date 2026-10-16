@@ -1,6 +1,6 @@
-// GET /api/divstocks -> dividend stocks ranked by return including dividends.
-import { yf, send, fail, num, NO_VALIDATE } from "./_lib/util.js";
-import { pool, monthly, returnsFrom, r1 } from "./_lib/screen.js";
+// Used by GET /api/ideas?section=divs -> dividend stocks ranked by return including dividends.
+import { yf, num, NO_VALIDATE } from "./util.js";
+import { pool, monthly, returnsFrom, r1 } from "./screen.js";
 
 const LIST = [
   ["JNJ", "US"], ["PG", "US"], ["KO", "US"], ["PEP", "US"], ["ABBV", "US"], ["MRK", "US"], ["XOM", "US"], ["CVX", "US"],
@@ -29,8 +29,8 @@ async function stock(symbol) {
   };
 }
 
-export default async function handler(req, res) {
-  try {
+export async function divStocksData() {
+  {
     const data = await pool(LIST.map((x) => x[0]), 10, stock);
     const region = Object.fromEntries(LIST);
     const stocks = data.filter((s) => s && s.yield).map((s) => {
@@ -38,6 +38,6 @@ export default async function handler(req, res) {
       const stretch = s.payout != null && s.payout > 90 ? -2 : 0;
       return { ...s, region: region[s.symbol], incomeScore: r1((s.yield ?? 0) + Math.min(s.divGrowth5y ?? 0, 15) * 0.5 + stretch) };
     }).sort((a, b) => (b.total1y ?? -99) - (a.total1y ?? -99));
-    send(res, 200, { stocks, asOf: Date.now() }, 12 * 3600);
-  } catch (e) { fail(res, e); }
+    return { stocks, asOf: Date.now() };
+  }
 }
