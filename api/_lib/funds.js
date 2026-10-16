@@ -1,7 +1,7 @@
-// GET /api/funds -> two ETF lists: top dividend ETFs, and ETFs with consistently strong yearly gains.
+// Used by GET /api/ideas?section=etfs -> two ETF lists: top dividend ETFs, and ETFs with consistently strong yearly gains.
 // Returns are total returns (price + reinvested dividends) from Yahoo's adjusted monthly closes.
-import { yf, send, fail, num, NO_VALIDATE } from "./_lib/util.js";
-import { pool, monthly, returnsFrom, r1 } from "./_lib/screen.js";
+import { yf, num, NO_VALIDATE } from "./util.js";
+import { pool, monthly, returnsFrom, r1 } from "./screen.js";
 
 const DIVIDEND = [
   ["SCHD", "US"], ["VYM", "US"], ["DGRO", "US"], ["VIG", "US"], ["HDV", "US"], ["NOBL", "US"], ["SDY", "US"], ["DVY", "US"], ["SPYD", "US"], ["JEPI", "US"],
@@ -30,8 +30,8 @@ async function fund(symbol) {
   };
 }
 
-export default async function handler(req, res) {
-  try {
+export async function fundsData() {
+  {
     const all = [...DIVIDEND, ...GROWTH];
     const data = await pool(all.map((x) => x[0]), 10, fund);
     const by = Object.fromEntries(data.filter(Boolean).map((f) => [f.symbol, f]));
@@ -60,6 +60,6 @@ export default async function handler(req, res) {
       return { ...f, avgYear: r1(avg), worstYear: r1(worst), beats, upYears, yearsCounted: ys.length, consistency: r1(score) };
     }).sort((a, b) => (b.consistency ?? -999) - (a.consistency ?? -999));
 
-    send(res, 200, { dividend, growth, benchmark: spy ? { symbol: "SPY", years: spy.years.slice(-5).map((y) => ({ year: y.year, ret: r1(y.ret) })) } : null, asOf: Date.now() }, 12 * 3600);
-  } catch (e) { fail(res, e); }
+    return { dividend, growth, benchmark: spy ? { symbol: "SPY", years: spy.years.slice(-5).map((y) => ({ year: y.year, ret: r1(y.ret) })) } : null, asOf: Date.now() };
+  }
 }
