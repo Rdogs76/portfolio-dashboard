@@ -43,6 +43,8 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg><span>Watchlist</span></button>
         <button role="tab" data-tab="research" aria-selected="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Research</span></button>
+        <button role="tab" data-tab="ideas" aria-selected="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2V16h5v-.2c.1-.8.5-1.5 1.1-2A6 6 0 0 0 12 3z"/></svg><span>Ideas</span></button>
         <button role="tab" data-tab="news" aria-selected="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h13v14H6a2 2 0 0 1-2-2z"/><path d="M17 9h3v8a2 2 0 0 1-2 2"/><path d="M8 9h5M8 13h5"/></svg><span>News</span></button>
         <button role="tab" data-tab="recap" aria-selected="false">
@@ -597,6 +599,89 @@
             <ul class="news-list" id="rsNews"></ul>
           </article>
         </div>
+      </div>
+    </section>
+
+    <!-- IDEAS -->
+    <section class="view" id="view-ideas" role="tabpanel" hidden>
+      <div class="view-head">
+        <div class="seg scroll" id="idSeg" role="tablist" aria-label="Ideas sections">
+          <button data-sub="stocks" aria-pressed="true">Stock ideas</button>
+          <button data-sub="flows" aria-pressed="false">Where money is moving</button>
+          <button data-sub="dividends" aria-pressed="false">Dividend stocks</button>
+          <button data-sub="etfs" aria-pressed="false">ETFs</button>
+        </div>
+        <span class="muted small" id="idAsOf"></span>
+      </div>
+      <p class="ideas-note">Ideas are screened from public data: analyst estimates, price trends and dividends. Treat them as a starting point for your own research, not personal financial advice.</p>
+
+      <div class="sub-view" data-sub="stocks">
+        <article class="card">
+          <div class="card-head ta-head"><div><h2>AI build-out: where's the bottleneck?</h2><div class="muted small">Follow the supply chain from the AI spenders down. The link whose profit estimates rise fastest is usually the one demand is outrunning.</div></div></div>
+          <div class="chain" id="idChain"><div class="skeleton" style="height:180px;width:100%"></div></div>
+          <p class="insight" id="idInsight"></p>
+        </article>
+        <article class="card">
+          <div class="card-head"><h2>Top stock ideas</h2>
+            <div class="chips" id="idFilter" role="group" aria-label="Filter ideas">
+              <button data-group="all" aria-pressed="true">All</button>
+              <button data-group="AI build-out" aria-pressed="false">AI build-out</button>
+              <button data-group="Canada" aria-pressed="false">Canada</button>
+              <button data-group="other" aria-pressed="false">Other sectors</button>
+            </div>
+          </div>
+          <div id="idList"></div>
+          <p class="small muted ta-note">How ideas are scored: each stock is ranked against the others on five things. Rising profit estimates count 30%, expected earnings growth 25%, price momentum 20%, upside to analysts' targets 15% and analyst rating 10%. A high score means several signals agree. The warnings flag stocks that already look stretched or expensive.</p>
+        </article>
+      </div>
+
+      <div class="sub-view" data-sub="flows" hidden>
+        <div class="grid g-2">
+          <article class="card"><div class="card-head"><h2>Money flowing in</h2><span class="tag up">Buying</span></div><ul class="list" id="flowIn"></ul></article>
+          <article class="card"><div class="card-head"><h2>Money flowing out</h2><span class="tag down">Selling</span></div><ul class="list" id="flowOut"></ul></article>
+        </div>
+        <article class="card">
+          <div class="card-head ta-head"><div><h2>All sectors and themes</h2><div class="muted small" id="flowRotation"></div></div></div>
+          <div class="table-wrap"><table class="table flow-table" id="flowTable"></table></div>
+          <p class="small muted ta-note">"vs S&amp;P 500" is how much better or worse the group did than the S&amp;P 500. "Buying pressure" weighs the last 20 days' trading volume on up days against down days: positive means more money traded on up days. "Activity" compares recent trading volume with the previous three months.</p>
+        </article>
+      </div>
+
+      <div class="sub-view" data-sub="dividends" hidden>
+        <article class="card">
+          <div class="card-head ta-head">
+            <div><h2>Dividend stocks</h2><div class="muted small">Total return includes the dividends you'd have collected and reinvested</div></div>
+            <div class="chips" data-region-filter role="group" aria-label="Region">
+              <button data-region="all" aria-pressed="true">All</button><button data-region="US" aria-pressed="false">US</button><button data-region="CA" aria-pressed="false">Canada</button>
+            </div>
+          </div>
+          <div class="seg scroll div-sort" id="divSort" role="group" aria-label="Sort by">
+            <button data-sort="total1y" aria-pressed="true">1-yr total return</button>
+            <button data-sort="total5y" aria-pressed="false">5-yr total return</button>
+            <button data-sort="yield" aria-pressed="false">Highest yield</button>
+            <button data-sort="divGrowth5y" aria-pressed="false">Dividend growth</button>
+            <button data-sort="incomeScore" aria-pressed="false">Yield + growth</button>
+          </div>
+          <div class="table-wrap"><table class="table rank-table" id="divTable"></table></div>
+          <p class="small muted ta-note">"Yield + growth" adds the dividend yield to half the 5-year dividend growth rate and marks down payout ratios over 90%. Those payouts leave little room to keep raising the dividend.</p>
+        </article>
+      </div>
+
+      <div class="sub-view" data-sub="etfs" hidden>
+        <div class="row between wrap gap"><span class="muted small">Returns include reinvested distributions. Expense ratio is the yearly fee.</span>
+          <div class="chips" data-region-filter role="group" aria-label="Region">
+            <button data-region="all" aria-pressed="true">All</button><button data-region="US" aria-pressed="false">US</button><button data-region="CA" aria-pressed="false">Canada</button>
+          </div>
+        </div>
+        <article class="card">
+          <div class="card-head ta-head"><div><h2>Top dividend ETFs</h2><div class="muted small">Ranked by 5-year total return, with extra credit for yield</div></div></div>
+          <div class="table-wrap"><table class="table rank-table" id="etfDivTable"></table></div>
+        </article>
+        <article class="card">
+          <div class="card-head ta-head"><div><h2>Consistent top performers</h2><div class="muted small">Year-by-year total returns. An underlined year beat the S&amp;P 500</div></div></div>
+          <div class="table-wrap"><table class="table rank-table" id="etfGrowthTable"></table></div>
+          <p class="small muted ta-note">Ranked by a consistency score that rewards a high average yearly return and years that beat the S&amp;P 500, and marks down big swings and losing years. Past returns don't guarantee future ones.</p>
+        </article>
       </div>
     </section>
 
