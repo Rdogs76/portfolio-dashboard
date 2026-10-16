@@ -114,7 +114,7 @@
   const state = {
     data: load(), demo: false, live: null,
     quotes: {}, meta: {}, market: null, events: null, news: null, quotesAt: null,
-    tab: "overview", ovMode: "all", allocBy: "holding", pfSub: "holdings", mkSub: "watchlist",
+    tab: "overview", ovMode: "all", allocBy: "holding", pfSub: "holdings", mkSub: "watchlist", idSub: "stocks", idGroup: "all", idRegion: "all", divSort: "total1y", ideasData: {},
     perfRange: "6mo", riskRange: "1y", cmpRange: "1y", sectorGroup: "all", newsSub: "calendar", newsFilter: "all", actFilter: "all",
     calDay: null, recapPeriod: "week", earnScope: "all", rbMode: "buy", gainsYear: null,
     research: { symbol: null, range: "1y", data: null }, charts: {}, stockCache: {},
@@ -364,7 +364,7 @@
 
   async function refreshAll() {
     const btn = $("#refreshBtn"); btn.classList.add("spinning");
-    state.meta = {}; state.stockCache = {}; state.analystCache = {};
+    state.meta = {}; state.stockCache = {}; state.analystCache = {}; state.ideasData = {};
     try {
       await loadQuotes(); renderCurrent();
       await Promise.all([loadMarket(), loadEvents(), loadNews(), loadFearGreed()]);
@@ -472,13 +472,14 @@
     if (tab === "news" && sub) state.newsSub = sub;
     if (tab === "portfolio" && sub) state.pfSub = sub;
     if (tab === "markets" && sub) state.mkSub = sub;
+    if (tab === "ideas" && sub) state.idSub = sub;
     if (location.hash.slice(1) !== tab) history.replaceState(null, "", "#" + tab);
     window.scrollTo({ top: 0 });
     renderCurrent();
   }
   function renderCurrent() {
     renderAccountSelects();
-    ({ overview: renderOverview, portfolio: renderPortfolio, markets: renderMarkets, research: renderResearch, news: renderNews, recap: renderRecap })[state.tab]?.();
+    ({ overview: renderOverview, portfolio: renderPortfolio, markets: renderMarkets, research: renderResearch, ideas: renderIdeas, news: renderNews, recap: renderRecap })[state.tab]?.();
   }
   function renderAccountSelects() {
     const cur = acct();
@@ -1260,6 +1261,127 @@
     $("#rsAbout").innerHTML = html || `<p class="muted">No description available.</p>`;
   }
 
+  // ---------- Ideas: stock ideas, money flow, dividend stocks, ETFs ----------
+  const IDEA_SRC = { stocks: "stocks", flows: "stocks", dividends: "divs", etfs: "etfs" };
+  async function ideasData(kind) {
+    const store = state.ideasData;
+    if (store[kind]?.data) return store[kind].data;
+    if (!store[kind]?.promise) store[kind] = { promise: api("ideas", kind === "stocks" ? {} : { section: kind }).then((d) => (store[kind].data = d)).catch((e) => { store[kind] = null; throw e; }) };
+    return store[kind].promise;
+  }
+  const pctCell = (v, dec = 1) => (v == null ? `<span class="muted">—</span>` : `<span class="${cls(v)}">${pct(v, dec)}</span>`);
+  const heat = (v, max = 40) => { if (v == null) return ""; const a = Math.min(1, Math.abs(v) / max); return `background:color-mix(in srgb, var(${v >= 0 ? "--up" : "--down"}) ${Math.round(12 + a * 48)}%, transparent)`; };
+  const regionOk = (r) => state.idRegion === "all" || r === state.idRegion;
+  const symCell = (sym, name, extra = "") => `<div class="sym">${avatar(sym)}<div><b>${esc(sym)}</b><span>${esc(name || "")}</span>${extra}</div></div>`;
+
+  async function renderIdeas() {
+    const sub = state.idSub;
+    setPressed($("#idSeg"), "sub", sub);
+    $$("#view-ideas .sub-view").forEach((v) => (v.hidden = v.dataset.sub !== sub));
+    $$("#view-ideas [data-region-filter]").forEach((g) => setPressed(g, "region", state.idRegion));
+    const kind = IDEA_SRC[sub];
+    const loading = !state.ideasData[kind]?.data;
+    if (loading) {
+      const sk = `<div class="skeleton" style="height:220px"></div>`;
+      if (sub === "stocks") { $("#idList").innerHTML = sk; }
+      else if (sub === "flows") { $("#flowIn").innerHTML = $("#flowOut").innerHTML = skeletonList(4); $("#flowTable").innerHTML = ""; }
+      else if (sub === "dividends") $("#divTable").innerHTML = `<tbody><tr><td>${sk}</td></tr></tbody>`;
+      else { $("#etfDivTable").innerHTML = $("#etfGrowthTable").innerHTML = `<tbody><tr><td>${sk}</td></tr></tbody>`; }
+      $("#idAsOf").textContent = "Crunching the numbers… the first load can take up to 30 seconds";
+    }
+    let d;
+    try { d = await ideasData(kind); }
+    catch (e) {
+      if (state.tab !== "ideas" || state.idSub !== sub) return;
+      $("#idAsOf").textContent = "";
+      const msg = `<p class="empty-line">This section couldn't load right now. Press the refresh button to try again.</p>`;
+      if (sub === "stocks") $("#idList").innerHTML = msg; else if (sub === "flows") $("#flowTable").innerHTML = `<tbody><tr><td>${msg}</td></tr></tbody>`;
+      else if (sub === "dividends") $("#divTable").innerHTML = `<tbody><tr><td>${msg}</td></tr></tbody>`; else $("#etfDivTable").innerHTML = `<tbody><tr><td>${msg}</td></tr></tbody>`;
+      return;
+    }
+    if (state.tab !== "ideas" || state.idSub !== sub) return;
+    $("#idAsOf").textContent = d.asOf ? "Updated " + new Date(d.asOf).toLocaleString("en-CA", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+    ({ stocks: renderStockIdeas, flows: renderFlows, dividends: renderDivStocks, etfs: renderEtfs })[sub](d);
+  }
+
+  function renderStockIdeas(d) {
+    const links = d.links || [];
+    const hottest = links.filter((l) => l.key !== "cloud").sort((a, b) => b.pressure - a.pressure)[0]?.key;
+    $("#idChain").innerHTML = links.map((l, i) => `<div class="chain-link${l.key === hottest ? " hot" : ""}${l.key === "cloud" ? " demand" : ""}" style="--p:${l.pressure}">
+        ${l.key === hottest ? `<span class="chain-badge">Bottleneck signal</span>` : l.key === "cloud" ? `<span class="chain-badge soft">Demand</span>` : ""}
+        <div class="chain-step">${i + 1}</div>
+        <div class="chain-name">${esc(l.name)}</div>
+        <div class="chain-role">${esc(l.role)}</div>
+        <div class="chain-big ${cls(l.rev90)}">${l.rev90 == null ? "—" : pct(l.rev90, 0)}</div>
+        <div class="chain-lbl">change in profit estimates, 90 days</div>
+        <dl class="chain-kv"><dt>Growth next yr</dt><dd>${pctCell(l.growthNext, 0)}</dd><dt>1-yr price</dt><dd>${pctCell(l.chg1y, 0)}</dd></dl>
+        <div class="chain-meter" title="Pressure ${l.pressure} of 100"><span style="width:${l.pressure}%"></span></div>
+        <div class="chain-syms">${l.stocks.slice(0, 4).map((s) => `<button class="chip-mini" data-symbol="${esc(s.symbol)}" title="${esc(s.name)}">${esc(s.symbol.replace(".TO", ""))}</button>`).join("")}</div>
+      </div>`).join("");
+    $("#idInsight").innerHTML = d.insight ? `<b>What the numbers say:</b> ${esc(d.insight)}` : "";
+    setPressed($("#idFilter"), "group", state.idGroup);
+    const g = state.idGroup;
+    const list = (d.stocks || []).filter((s) => g === "all" || (g === "other" ? s.group !== "AI build-out" && s.group !== "Canada" : s.group === g));
+    const show = state.idShowAll ? list : list.slice(0, 12);
+    $("#idList").innerHTML = list.length ? `<ol class="idea-list">${show.map((s, i) => `<li class="idea clickable" data-symbol="${esc(s.symbol)}">
+        <div class="idea-rank">${i + 1}</div>
+        <div class="idea-main">
+          <div class="idea-top">${symCell(s.symbol, s.name)}<span class="tag acct">${esc(s.group)}</span></div>
+          <ul class="idea-why">${s.why.map((w) => `<li>${esc(w)}</li>`).join("") || `<li class="muted">Mixed signals: no single factor stands out</li>`}</ul>
+          ${s.risks.length ? `<div class="idea-risk">⚠ ${s.risks.map(esc).join(" · ")}</div>` : ""}
+        </div>
+        <div class="idea-stats">
+          <div><small class="lbl">Score</small><b class="idea-score" style="--s:${s.score ?? 0}">${s.score ?? "—"}</b></div>
+          <div><small class="lbl">Estimates 90d</small>${pctCell(s.rev90, 0)}</div>
+          <div><small class="lbl">Growth next yr</small>${pctCell(s.growthNext, 0)}</div>
+          <div><small class="lbl">Analyst upside</small>${pctCell(s.upside, 0)}</div>
+          <div><small class="lbl">1-yr price</small>${pctCell(s.chg1y, 0)}</div>
+        </div>
+      </li>`).join("")}</ol>${list.length > 12 ? `<button class="link ta-more" data-ideas-more>${state.idShowAll ? "Show top 12" : `Show all ${list.length}`}</button>` : ""}` : `<p class="empty-line">No stocks in this group right now.</p>`;
+  }
+
+  function renderFlows(d) {
+    const f = d.flows || [];
+    const item = (x) => `<li><div class="grow"><div class="title">${esc(x.name)} <span class="muted small">${esc(x.symbol)}</span></div><div class="meta">1 month ${pct(x.rel1m, 1)} vs S&P 500 · buying pressure ${pct(x.pressure, 0)}</div></div><div class="flow-score ${x.flowScore >= 50 ? "up" : "down"}">${x.flowScore}</div></li>`;
+    $("#flowIn").innerHTML = f.slice(0, 5).map(item).join("") || `<li class="empty-line">No data</li>`;
+    $("#flowOut").innerHTML = f.slice(-5).reverse().map(item).join("") || `<li class="empty-line">No data</li>`;
+    $("#flowRotation").textContent = d.rotation || "";
+    const bar = (v, max = 15) => v == null ? "—" : `<div class="dbar"><span class="${v >= 0 ? "pos" : "neg"}" style="width:${Math.min(50, (Math.abs(v) / max) * 50)}%"></span></div><span class="${cls(v)} small">${pct(v, 1)}</span>`;
+    $("#flowTable").innerHTML = `<thead><tr><th>Sector / theme</th><th>1 month vs S&amp;P 500</th><th>3 months vs S&amp;P 500</th><th>Buying pressure</th><th class="r">Activity</th><th class="r">Flow score</th></tr></thead><tbody>${f.map((x) => `<tr class="clickable" data-symbol="${esc(x.symbol)}">
+      <td><b>${esc(x.name)}</b> <span class="muted small">${esc(x.symbol)}</span></td>
+      <td class="bar-cell">${bar(x.rel1m, 10)}</td><td class="bar-cell">${bar(x.rel3m, 20)}</td><td class="bar-cell">${bar(x.pressure, 60)}</td>
+      <td class="r muted">${pct(x.volSurge, 0)}</td>
+      <td class="r"><div class="score-pill" style="--s:${x.flowScore}">${x.flowScore}</div></td></tr>`).join("")}</tbody>`;
+  }
+
+  function renderDivStocks(d) {
+    setPressed($("#divSort"), "sort", state.divSort);
+    const k = state.divSort;
+    const rows = (d.stocks || []).filter((s) => regionOk(s.region)).sort((a, b) => (b[k] ?? -999) - (a[k] ?? -999));
+    $("#divTable").innerHTML = `<thead><tr><th>#</th><th>Stock</th><th class="r">Yield</th><th class="r">1-yr total return</th><th class="r">1-yr price only</th><th class="r">5-yr total return / yr</th><th class="r">Dividend growth / yr</th><th class="r">Payout</th></tr></thead><tbody>${rows.map((s, i) => `<tr class="clickable" data-symbol="${esc(s.symbol)}">
+      <td class="muted">${i + 1}</td><td>${symCell(s.symbol, s.name)}</td>
+      <td class="r"><b>${s.yield == null ? "—" : s.yield.toFixed(1) + "%"}</b></td>
+      <td class="r ${k === "total1y" ? "sorted" : ""}">${pctCell(s.total1y)}</td><td class="r">${pctCell(s.price1y)}</td>
+      <td class="r ${k === "total5y" ? "sorted" : ""}">${pctCell(s.total5y)}</td><td class="r ${k === "divGrowth5y" ? "sorted" : ""}">${pctCell(s.divGrowth5y)}</td>
+      <td class="r ${s.payout > 90 ? "down" : ""}">${s.payout == null ? "—" : Math.round(s.payout) + "%"}</td></tr>`).join("")}</tbody>`;
+  }
+
+  function renderEtfs(d) {
+    const div = (d.dividend || []).filter((f) => regionOk(f.region));
+    $("#etfDivTable").innerHTML = `<thead><tr><th>#</th><th>ETF</th><th class="r">Yield</th><th class="r">Fee</th><th class="r">1-yr total return</th><th class="r">5-yr total return / yr</th><th class="r">Payout growth / yr</th></tr></thead><tbody>${div.map((f, i) => `<tr class="clickable" data-symbol="${esc(f.symbol)}">
+      <td class="muted">${i + 1}</td><td>${symCell(f.symbol, f.name)}</td><td class="r"><b>${f.yield == null ? "—" : f.yield.toFixed(1) + "%"}</b></td>
+      <td class="r">${f.expense == null ? "—" : f.expense.toFixed(2) + "%"}</td><td class="r">${pctCell(f.total1y)}</td><td class="r sorted">${pctCell(f.total5y)}</td><td class="r">${pctCell(f.divGrowth5y)}</td></tr>`).join("")}</tbody>`;
+    const gr = (d.growth || []).filter((f) => regionOk(f.region));
+    const years = [...new Set(gr.flatMap((f) => f.years.map((y) => y.year)))].sort();
+    const bench = Object.fromEntries((d.benchmark?.years || []).map((y) => [y.year, y.ret]));
+    $("#etfGrowthTable").innerHTML = `<thead><tr><th>#</th><th>ETF</th>${years.map((y) => `<th class="r">${y}</th>`).join("")}<th class="r">${new Date().getFullYear()} YTD</th><th class="r">Avg / yr</th><th class="r">Worst</th><th class="r">Beat S&amp;P</th></tr></thead><tbody>${gr.map((f, i) => {
+      const by = Object.fromEntries(f.years.map((y) => [y.year, y]));
+      return `<tr class="clickable" data-symbol="${esc(f.symbol)}"><td class="muted">${i + 1}</td><td>${symCell(f.symbol, f.name)}</td>
+        ${years.map((y) => { const c = by[y]; return `<td class="r yr ${c?.beat ? "beat" : ""}" style="${heat(c?.ret)}" title="${c && bench[y] != null ? `S&P 500: ${pct(bench[y], 1)}` : ""}">${c ? pct(c.ret, 0) : "—"}</td>`; }).join("")}
+        <td class="r">${pctCell(f.ytd, 0)}</td><td class="r"><b>${pctCell(f.avgYear)}</b></td><td class="r">${pctCell(f.worstYear, 0)}</td><td class="r"><b>${f.beats}</b>/${f.yearsCounted}</td></tr>`;
+    }).join("")}</tbody>`;
+  }
+
   // ---------- News & calendar ----------
   function renderNews() {
     setPressed($("#newsSeg"), "sub", state.newsSub);
@@ -1744,6 +1866,14 @@
     $("#gainsExport").addEventListener("click", () => { const l = state.gainsList || []; download(`capital-gains-${state.gainsYear}.csv`, [["date_sold", "symbol", "account", "tax_sheltered", "shares", "proceeds", "adjusted_cost_base", "gain", "currency"], ...l.map((s) => [s.date, s.symbol, s.account, s.sheltered ? "yes" : "no", s.qty, s.proceeds.toFixed(2), s.acb.toFixed(2), s.gain.toFixed(2), s.currency])].map((r) => r.map(csvCell).join(",")).join("\n")); });
     // Watchlist area
     onSeg("#mkSeg", "sub", (v) => { state.mkSub = v; renderMarkets(); });
+    onSeg("#idSeg", "sub", (v) => { state.idSub = v; renderIdeas(); });
+    onSeg("#idFilter", "group", (v) => { state.idGroup = v; state.idShowAll = false; renderIdeas(); });
+    onSeg("#divSort", "sort", (v) => { state.divSort = v; renderIdeas(); });
+    $("#view-ideas").addEventListener("click", (e) => {
+      const r = e.target.closest("[data-region]"); if (r) { state.idRegion = r.dataset.region; renderIdeas(); return; }
+      if (e.target.closest("[data-ideas-more]")) { state.idShowAll = !state.idShowAll; renderIdeas(); return; }
+      const s = e.target.closest("[data-symbol]"); if (s) { e.stopPropagation(); openResearch(s.dataset.symbol); }
+    });
     onSeg("#earnScope", "scope", (v) => { state.earnScope = v; renderEarnings(); });
     onSeg("#cmpRanges", "range", (v) => { state.cmpRange = v; renderCompare(); });
     $("#watchAddForm").addEventListener("submit", async (e) => {
