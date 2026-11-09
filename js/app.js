@@ -1088,12 +1088,51 @@
     $("#rsName").textContent = `${d.name} (${sym})`;
     $("#rsPrice").textContent = money(price, d.currency);
     $("#rsChange").innerHTML = `<span class="chg ${cls(change)}">${signedMoney(change, d.currency)} (${pct(changePct)})</span>`;
-    renderAnalyst(d, price); renderEarningsCard(d); renderRatios(d); renderAbout(d); renderTopAnalysts(sym, d);
+    renderAnalyst(d, price); renderEarningsCard(d); renderRatios(d); renderAbout(d); renderTopAnalysts(sym, d); renderValuation(sym, d);
     $("#rsChanges").innerHTML = d.analyst?.changes?.length ? d.analyst.changes.slice(0, 8).map((c) => {
       const verb = c.action === "up" ? "Upgraded" : c.action === "down" ? "Downgraded" : c.action === "init" ? "Initiated" : c.action === "reit" ? "Reiterated" : "Maintained";
       return `<li><div class="grow"><div class="title">${esc(c.firm)}</div><div class="meta">${verb}${c.from && c.from !== c.to ? ` from ${esc(c.from)}` : ""} to <b>${esc(c.to || "—")}</b></div></div><div class="meta">${fmtDate(c.date, { month: "short", day: "numeric" })}</div></li>`;
     }).join("") : `<li class="empty-line">No recent rating changes${d.type === "ETF" ? " (ETFs aren't rated by analysts)" : ""}.</li>`;
     $("#rsNews").innerHTML = newsItems(state.research.news || []);
+  }
+  // ---------- Valuation & research (models in js/valuation.js) ----------
+  let valToken = 0;
+  async function renderValuation(sym, d) {
+    const card = $("#rsValCard"), box = $("#rsVal");
+    if (!window.Valuation || (d.type && d.type !== "EQUITY")) { card.hidden = true; return; }
+    card.hidden = false;
+    const token = ++valToken;
+    const vs = (state.valState ||= {});
+    if (vs.sym !== sym) Object.assign(vs, { sym, tab: "summary", over: {}, risk: null, data: null });
+    const H = { esc, pct, cls };
+    const draw = () => {
+      try { Valuation.render(box, vs.data, H, vs); }
+      catch (e) { console.warn(e); box.innerHTML = `<p class="empty-line">The valuation model couldn't run on this company's data.</p>`; }
+    };
+    if (!vs.data) {
+      box.innerHTML = `<div class="skeleton" style="height:220px"></div>`;
+      try {
+        const [v, ch] = await Promise.all([api("stock", { symbol: sym, part: "valuation" }), api("charts", { symbols: `${sym},^GSPC`, range: "1y" }).catch(() => null)]);
+        if (token !== valToken || state.research.symbol !== sym) return;
+        vs.data = v;
+        const s = ch?.charts?.[sym]?.points, b = ch?.charts?.["^GSPC"]?.points;
+        vs.risk = s?.length ? { stock: s, bench: b || [] } : null;
+      } catch (e) {
+        if (token === valToken) box.innerHTML = `<p class="empty-line">Valuation data couldn't be loaded right now. Try the refresh button in a minute.</p>`;
+        return;
+      }
+    }
+    draw();
+    box.onclick = (e) => {
+      const t = e.target.closest("[data-vtab]"); if (t) { vs.tab = t.dataset.vtab; draw(); return; }
+      if (e.target.closest("[data-vreset]")) { vs.over = {}; draw(); }
+    };
+    box.onchange = (e) => {
+      const i = e.target.closest("[data-vover]"); if (!i) return;
+      const val = parseFloat(i.value);
+      if (Number.isFinite(val)) vs.over[i.dataset.vover] = val / 100; else delete vs.over[i.dataset.vover];
+      draw();
+    };
   }
   const RANGE_WORDS = { "1d": "today", "5d": "past 5 days", "1mo": "past month", "3mo": "past 3 months", "6mo": "past 6 months", ytd: "year to date", "1y": "past year", "5y": "past 5 years" };
   async function renderResearchChart() {
@@ -1332,21 +1371,47 @@
     catch (e) { console.error(e); ideaStatus(sub, "error", "Part of the data came back in an unexpected format."); }
   }
 
-  function renderStockIdeas(d) {
-    const links = d.links || [];
-    const hottest = links.filter((l) => l.key !== "cloud").sort((a, b) => b.pressure - a.pressure)[0]?.key;
-    $("#idChain").innerHTML = links.map((l, i) => `<div class="chain-link${l.key === hottest ? " hot" : ""}${l.key === "cloud" ? " demand" : ""}" style="--p:${l.pressure}">
-        ${l.key === hottest ? `<span class="chain-badge">Bottleneck signal</span>` : l.key === "cloud" ? `<span class="chain-badge soft">Demand</span>` : ""}
-        <div class="chain-step">${i + 1}</div>
+  // ---------- Bottleneck finder (market-wide supply chains) ----------
+  const THEMES_FALLBACK = [["ai", "AI infrastructure"], ["grid", "Electrification & power"], ["obesity", "GLP-1 & obesity drugs"], ["aero", "Aerospace & defence"], ["housing", "Housing & construction"], ["energy", "Oil, gas & LNG"], ["sectors", "All 11 sectors"]];
+  let chainToken = 0;
+  async function renderChain() {
+    const theme = (state.chainTheme ||= "ai");
+    const cache = (state.chainCache ||= {});
+    const themes = cache[theme]?.themes?.map((t) => [t.key, t.name]) || THEMES_FALLBACK;
+    $("#idTheme").innerHTML = themes.map(([k, n]) => `<button data-theme="${k}" aria-pressed="${k === theme}">${esc(n)}</button>`).join("");
+    $("#idTheme").onclick = (e) => { const b = e.target.closest("[data-theme]"); if (b && b.dataset.theme !== state.chainTheme) { state.chainTheme = b.dataset.theme; renderChain(); } };
+    const token = ++chainToken;
+    let d = cache[theme];
+    if (!d) {
+      $("#idChain").innerHTML = `<div class="skeleton" style="height:180px;width:100%;grid-column:1/-1"></div>`; $("#idInsight").innerHTML = ""; $("#idChainMeta").textContent = "";
+      try { d = await api("ideas", { section: "chains", theme }); cache[theme] = d; }
+      catch (e) { if (token === chainToken) { $("#idChain").innerHTML = `<p class="empty-line" style="grid-column:1/-1">This supply chain couldn't be loaded right now. Pick it again in a minute.</p>`; } return; }
+      if (token !== chainToken) return;
+      if (d.themes) $("#idTheme").innerHTML = d.themes.map((t) => `<button data-theme="${t.key}" aria-pressed="${t.key === theme}">${esc(t.name)}</button>`).join("");
+    }
+    const links = d.links || [], sectors = d.theme?.sectors;
+    $("#idChainAbout").textContent = d.theme?.about || "";
+    const box = $("#idChain");
+    box.classList.toggle("sectors", !!sectors);
+    box.style.setProperty("--cols", links.length);
+    const shown = sectors ? links.slice().sort((a, b) => (b.rev90 ?? -999) - (a.rev90 ?? -999)) : links;
+    box.innerHTML = shown.map((l, i) => `<div class="chain-link${l.key === d.signal ? " hot" : ""}${l.demand ? " demand" : ""}" style="--p:${l.pressure}">
+        ${l.key === d.signal ? `<span class="chain-badge">${sectors ? "Fastest revisions" : "Bottleneck signal"}</span>` : l.demand ? `<span class="chain-badge soft">Demand</span>` : ""}
+        <div class="chain-step">${sectors ? "#" + (i + 1) : i + 1}</div>
         <div class="chain-name">${esc(l.name)}</div>
         <div class="chain-role">${esc(l.role)}</div>
         <div class="chain-big ${cls(l.rev90)}">${l.rev90 == null ? "—" : pct(l.rev90, 0)}</div>
-        <div class="chain-lbl">change in profit estimates, 90 days</div>
-        <dl class="chain-kv"><dt>Growth next yr</dt><dd>${pctCell(l.growthNext, 0)}</dd><dt>1-yr price</dt><dd>${pctCell(l.chg1y, 0)}</dd></dl>
+        <div class="chain-lbl">median change in profit estimates, 90 days</div>
+        <dl class="chain-kv"><dt>Growth next yr</dt><dd>${pctCell(l.growthNext, 0)}</dd><dt>1-yr price</dt><dd>${pctCell(l.chg1y, 0)}</dd><dt>Companies</dt><dd${l.reliable ? "" : ` class="down" title="Too few companies with data for a reliable reading"`}>${l.n} of ${l.of}</dd></dl>
         <div class="chain-meter" title="Pressure ${l.pressure} of 100"><span style="width:${l.pressure}%"></span></div>
-        <div class="chain-syms">${l.stocks.slice(0, 4).map((s) => `<button class="chip-mini" data-symbol="${esc(s.symbol)}" title="${esc(s.name)}">${esc(s.symbol.replace(".TO", ""))}</button>`).join("")}</div>
+        <div class="chain-syms">${l.stocks.slice(0, 6).map((s) => `<button class="chip-mini" data-symbol="${esc(s.symbol)}" title="${esc(s.name)}${s.rev90 != null ? ` · estimates ${s.rev90 > 0 ? "+" : ""}${s.rev90}%` : ""}">${esc(s.symbol.replace(".TO", ""))}</button>`).join("")}</div>
       </div>`).join("");
     $("#idInsight").innerHTML = d.insight ? `<b>What the numbers say:</b> ${esc(d.insight)}` : "";
+    $("#idChainMeta").textContent = `Data coverage ${d.coverage}% · company lists are an editorial selection, reviewed ${fmtDate(Date.parse(d.listDate + "T12:00:00Z"), { month: "short", year: "numeric" })} · medians shown. A signal is a pattern in analysts' estimates, not a prediction or a recommendation. Updated ${fmtDate(d.asOf, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
+  }
+
+  function renderStockIdeas(d) {
+    renderChain();
     setPressed($("#idFilter"), "group", state.idGroup);
     const g = state.idGroup;
     const list = (d.stocks || []).filter((s) => g === "all" || (g === "other" ? s.group !== "AI build-out" && s.group !== "Canada" : s.group === g));
