@@ -201,6 +201,61 @@
     };
   }
 
+  function valuation(sym) {
+    const q = quote(sym), m = info(sym), r = rng(hash(sym + "val"));
+    const isCA = sym.endsWith(".TO"), price = q.price, shares = (1e9 + r() * 3e9);
+    const mcap = price * shares, now = Date.now(), Y = 365.25 * 86400000;
+    const bank = /Financial/i.test(m.sector || "");
+    const rev0 = mcap / (2 + r() * 6), g = 0.04 + r() * 0.14, fm = 0.08 + r() * 0.18;
+    const annual = Array.from({ length: 5 }, (_, i) => {
+      const rev = rev0 / Math.pow(1 + g, 4 - i) * (0.97 + r() * 0.06), ta = rev * (1.2 + r() * 0.4);
+      const ebit = rev * (fm + 0.06), ni = ebit * 0.78, eq = ta * 0.45;
+      return { date: now - (4 - i) * Y - 60 * 86400000, year: new Date(now - (4 - i) * Y).getFullYear() - 1, revenue: rev, grossProfit: rev * 0.5, ebitda: ebit * 1.25, ebit, opInc: ebit,
+        netIncome: ni, pretax: ebit * 0.98, tax: ebit * 0.2, interest: rev * 0.006, cfo: rev * (fm + 0.08), capex: -rev * 0.06, fcf: rev * (fm + 0.02), sbc: rev * 0.01,
+        dividendsPaid: -ni * 0.3, totalAssets: ta, currentAssets: ta * 0.35, currentLiab: ta * 0.22, retained: eq * 0.7, totalLiab: ta - eq, totalDebt: ta * 0.18,
+        longTermDebt: ta * 0.15 * (1 - i * 0.02), cash: ta * 0.1, equity: eq, tangibleBook: eq * 0.8, minority: 0, preferred: 0, investedCapital: eq + ta * 0.18, shares: shares * (1.02 - i * 0.004), dilutedShares: shares * 1.01 };
+    });
+    const last = annual.at(-1);
+    const sectors = ["Technology", "Healthcare", "Industrials", "Consumer Cyclical", "Communication Services"];
+    const peers = Array.from({ length: 7 }, (_, i) => { const pr = rng(hash(sym + "peer" + i)); return {
+      symbol: ["PEERA", "PEERB", "PEERC", "PEERD", "PEERE", "PEERF", "PEERG"][i], name: `Demo peer ${i + 1}`, currency: m.currency,
+      sector: i < 6 ? m.sector : sectors[i % 5], industry: i < 4 ? "Demo industry" : "Other industry", marketCap: mcap * (0.3 + pr() * 3),
+      forwardPE: 14 + pr() * 22, trailingPE: 16 + pr() * 25, evEbitda: 9 + pr() * 14, evRevenue: 2 + pr() * 5, ps: 2 + pr() * 6, pb: 2 + pr() * 8, roe: 0.1 + pr() * 0.2, profitMargin: 0.08 + pr() * 0.2, revenueGrowth: 0.02 + pr() * 0.15,
+      sameIndustry: i < 4, sameSector: i < 6, sizeOk: i !== 2 }; });
+    const eps = last.netIncome / shares;
+    return {
+      symbol: sym, name: m.name, quoteType: "EQUITY", priceCurrency: m.currency, financialCurrency: m.currency, fx: 1, region: isCA ? "CA" : "US",
+      price, marketCap: mcap, sharesOutstanding: shares, impliedShares: shares, sector: m.sector || "Technology", industry: bank ? "Banks - Diversified" : "Demo industry",
+      beta: 0.7 + r() * 0.8, riskFree: 0.042,
+      ttm: { revenue: last.revenue * (1 + g / 2), ebitda: last.ebitda, fcf: last.fcf, cfo: last.cfo, grossMargin: 0.5, opMargin: fm + 0.06, profitMargin: (fm + 0.06) * 0.78, roe: 0.18, roa: 0.08, totalDebt: last.totalDebt, totalCash: last.cash, currentRatio: 1.6, debtToEquity: 40, revenueGrowth: g, earningsGrowth: g * 1.2 },
+      multiples: { trailingPE: price / eps, forwardPE: price / (eps * (1 + g)), peg: 1.5, evEbitda: (mcap + last.totalDebt - last.cash) / last.ebitda, evRevenue: (mcap + last.totalDebt - last.cash) / last.revenue, ps: mcap / last.revenue, pb: mcap / last.equity, enterpriseValue: mcap + last.totalDebt - last.cash, bookValuePS: last.equity / shares, forwardEps: eps * (1 + g), trailingEps: eps },
+      dividend: { rate: eps * 0.3, yield: eps * 0.3 / price, payout: 0.3 },
+      sentiment: { shortPctFloat: 0.01 + r() * 0.06, shortRatio: 1 + r() * 3, sharesShort: 2e7, sharesShortPrior: 2e7 * (0.85 + r() * 0.3), insiders: 0.01 + r() * 0.05, institutions: 0.55 + r() * 0.3, high52: price * (1.05 + r() * 0.2), low52: price * (0.65 + r() * 0.15), ma50: price * (0.96 + r() * 0.06), ma200: price * (0.88 + r() * 0.12), recTrend: { strongBuy: 8, buy: 14, hold: 9, sell: 1, strongSell: 0 } },
+      consensus: { epsCY: eps * (1 + g / 2), epsNY: eps * (1 + g) ** 1.5, epsGrowthCY: g, epsGrowthNY: g * 1.1, revCY: last.revenue * (1 + g), revNY: last.revenue * (1 + g) ** 2, revGrowthCY: g, revGrowthNY: g * 0.95, ltg: g, epsRev90CY: -3 + r() * 9, epsRev90NY: -4 + r() * 12, analysts: 30, recMean: 2.1, targetMean: price * 1.1, targetHigh: price * 1.35, targetLow: price * 0.8 },
+      catalysts: { earnings: [now + (6 + Math.floor(r() * 40)) * 86400000], exDividend: now + 20 * 86400000, dividendDate: now + 35 * 86400000,
+        changes: [{ date: now - 9 * 86400000, firm: "Demo Securities", from: "Hold", to: "Buy", action: "up", target: +(price * 1.15).toFixed(0) }, { date: now - 40 * 86400000, firm: "Example Capital", from: "Buy", to: "Buy", action: "main", target: +(price * 1.1).toFixed(0) }, { date: now - 70 * 86400000, firm: "Sample & Co.", from: "Buy", to: "Hold", action: "down", target: +(price * 0.95).toFixed(0) }] },
+      annual, annualError: null, peers, asOf: now, demo: true,
+    };
+  }
+
+  function chains(theme) {
+    const T = [["ai", "AI infrastructure"], ["grid", "Electrification & power"], ["obesity", "GLP-1 & obesity drugs"], ["aero", "Aerospace & defence"], ["housing", "Housing & construction"], ["energy", "Oil, gas & LNG"], ["sectors", "All 11 sectors"]];
+    const L = { ai: [["Cloud & AI spenders", "MSFT AMZN GOOGL META ORCL"], ["AI chips", "NVDA AMD AVGO MRVL"], ["Memory & storage", "MU WDC STX SNDK"], ["Foundry & equipment", "TSM ASML AMAT LRCX KLAC"], ["Networking & optics", "ANET CIEN COHR LITE"], ["Power & grid", "VST CEG GEV ETN PWR"], ["Cooling & data centres", "VRT EQIX DLR MOD"]],
+      grid: [["Utilities", "NEE DUK SO AEP FTS.TO"], ["Power generators", "CEG VST NRG TLN"], ["Grid equipment", "GEV ETN HUBB POWL"], ["Grid contractors", "PWR MTZ MYRG PRIM"], ["Copper", "FCX SCCO TECK HBM"], ["Uranium & fuel", "CCJ NXE UEC LEU"]],
+      obesity: [["Drug makers", "LLY NVO AMGN VKTX"], ["Injection devices & packaging", "WST BDX STVN TFX"], ["Bioprocessing & tools", "TMO DHR A RGEN"], ["Distribution & pharmacy", "MCK COR CAH CVS"]],
+      aero: [["Primes & plane makers", "LMT RTX NOC GD BA"], ["Engines & parts", "GE HWM TDG HEI"], ["Defence electronics", "LHX TDY CW MRCY"], ["Space & drones", "RKLB KTOS AVAV MDA.TO"], ["Training & services", "CAE.TO BAH LDOS SAIC"]],
+      housing: [["Homebuilders", "DHI LEN PHM NVR"], ["Building products", "BLDR MAS OC TREX"], ["Lumber & aggregates", "WFG.TO WY VMC MLM"], ["HVAC & appliances", "CARR TT LII WHR"], ["Home improvement retail", "HD LOW FND WSM"]],
+      energy: [["Producers", "XOM CVX COP CNQ.TO"], ["Oilfield services", "SLB HAL BKR WFRD"], ["Pipelines", "ENB.TO TRP.TO WMB KMI"], ["Natural gas & LNG", "LNG EQT AR CTRA"], ["Refiners", "MPC VLO PSX PBF"]],
+      sectors: [["Technology", "AAPL MSFT NVDA AVGO ORCL"], ["Communication", "GOOGL META NFLX TMUS DIS"], ["Consumer discretionary", "AMZN TSLA HD MCD BKNG"], ["Consumer staples", "WMT COST PG KO PEP"], ["Healthcare", "LLY UNH JNJ ABBV MRK"], ["Financials", "JPM V MA BAC RY.TO"], ["Industrials", "GE CAT RTX UNP CP.TO"], ["Energy", "XOM CVX COP CNQ.TO ENB.TO"], ["Utilities", "NEE SO DUK CEG FTS.TO"], ["Real estate", "PLD AMT WELL EQIX SPG"], ["Materials", "LIN SHW FCX NEM NTR.TO"]] };
+    const key = L[theme] ? theme : "ai", sectors = key === "sectors";
+    const r = rng(hash("chain" + key + new Date().toDateString())), R = (a, b) => +(a + r() * (b - a)).toFixed(1);
+    const links = L[key].map(([name, syms], i) => { const ss = syms.split(" "); return { key: "l" + i, name, role: i === 0 && !sectors ? "Demand" : "Supplier", demand: i === 0 && !sectors, n: ss.length, of: ss.length, reliable: true, rev90: R(-6, 14), growthNext: R(-5, 35), chg1y: R(-20, 80), pressure: Math.round(R(10, 95)), stocks: ss.map((s) => ({ symbol: s, name: info(s).name, rev90: R(-8, 18) })) }; });
+    const cand = links.filter((l) => !l.demand).sort((a, b) => b.rev90 - a.rev90);
+    return { theme: { key, name: T.find((t) => t[0] === key)[1], about: "Demo data. Deploy the app to see live analyst estimate revisions for this supply chain.", sectors },
+      themes: T.map(([k, n]) => ({ key: k, name: n })), links, signal: cand[0].key,
+      insight: `${cand[0].name} shows the strongest estimate-revision lead in this demo data (median ${cand[0].rev90}% in 90 days).`, coverage: 100, listDate: "2026-11-08", asOf: Date.now() };
+  }
+
   function meta(sym) {
     const s = stock(sym); const m = info(sym);
     return { symbol: sym, name: m.name, type: m.type, currency: m.currency, sector: s.sector, sectorWeights: s.fund?.sectorWeights || null, earnings: { dates: s.earnings.next || [], epsEstimate: s.earnings.epsEstimate, revenueEstimate: s.earnings.revenueEstimate }, exDividendDate: null };
@@ -216,13 +271,14 @@
     switch (path) {
       case "quotes": return { quotes: Object.fromEntries(syms.map((s) => [s, quote(s)])), asOf: Date.now() };
       case "charts": return { range: params.range, charts: Object.fromEntries(syms.map((s) => [s, chart(s, params.range || "1y")])), errors: {}, asOf: Date.now() };
-      case "stock": return stock(syms[0]);
+      case "stock": return params.part === "valuation" ? valuation(syms[0]) : stock(syms[0]);
       case "meta": return { meta: Object.fromEntries(syms.map((s) => [s, meta(s)])), errors: {}, asOf: Date.now() };
       case "news": return { news: news(syms), asOf: Date.now() };
       case "search": { const q = (params.q || "").toUpperCase(); return { results: Object.keys(CATALOG).filter((k) => k.includes(q) || (CATALOG[k][2] || "").toUpperCase().includes(q)).slice(0, 8).map((k) => ({ symbol: k, name: CATALOG[k][2] || k, exchange: k.endsWith(".TO") ? "Toronto" : "NASDAQ", type: CATALOG[k][3] || "ETF" })) }; }
       case "calendar": return { events: calendar(), source: "Demo", asOf: Date.now() };
       case "market": return { series: MARKET.map(([symbol, name, group]) => ({ symbol, name, group, points: chart(symbol, "3mo").points })), asOf: Date.now() };
       case "ideas": {
+        if (params.section === "chains") return chains(params.theme);
         if (params.section === "divs") return handle("divstocks", {});
         if (params.section === "etfs") return handle("funds", {});
         if (params.section === "returns") {
