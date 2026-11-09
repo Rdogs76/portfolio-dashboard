@@ -5,6 +5,10 @@
 // (js/valuation.js) so readers can change the assumptions and see the result update.
 import { yf, num, time, NO_VALIDATE } from "./util.js";
 import { pool } from "./screen.js";
+import { THEMES } from "./chains.js";
+
+// When Yahoo's "similar companies" list gives too few usable peers, fall back to the sector basket.
+const SECTOR_KEY = { "Technology": "tech", "Communication Services": "comm", "Consumer Cyclical": "disc", "Consumer Defensive": "staples", "Healthcare": "health", "Financial Services": "fin", "Industrials": "ind", "Energy": "energy", "Utilities": "util", "Real Estate": "re", "Basic Materials": "mat" };
 
 const YEAR = 365.25 * 86400000;
 const FIELDS = {
@@ -95,12 +99,18 @@ export async function valuationData(symbol) {
   // Peers: Yahoo's "similar" list, kept only when sector matches and size is within 0.2x-5x.
   const subject = { sector: a.sector || null, industry: a.industry || null };
   const peerSyms = (recs?.recommendedSymbols || recs?.[0]?.recommendedSymbols || []).map((r) => r.symbol).filter((x) => x && x !== symbol).slice(0, 10);
-  const peersRaw = (await pool(peerSyms, 6, peerData)).filter(Boolean);
+  let peersRaw = (await pool(peerSyms, 6, peerData)).filter(Boolean);
+  const sizeOk = (pr) => !!(marketCap && pr.marketCap && pr.marketCap / marketCap >= 0.2 && pr.marketCap / marketCap <= 5);
+  if (peersRaw.filter((pr) => pr.sector === subject.sector && sizeOk(pr)).length < 3) {
+    const basket = THEMES.find((t) => t.key === "sectors")?.links.find((l) => l.key === SECTOR_KEY[subject.sector]);
+    const extra = (basket?.symbols || []).filter((x) => x !== symbol && !peerSyms.includes(x));
+    peersRaw = peersRaw.concat((await pool(extra, 6, peerData)).filter(Boolean));
+  }
   const peers = peersRaw.map((pr) => ({
     ...pr,
     sameIndustry: !!(subject.industry && pr.industry === subject.industry),
     sameSector: !!(subject.sector && pr.sector === subject.sector),
-    sizeOk: !!(marketCap && pr.marketCap && pr.marketCap / marketCap >= 0.2 && pr.marketCap / marketCap <= 5),
+    sizeOk: sizeOk(pr),
   }));
 
   // Catalysts
