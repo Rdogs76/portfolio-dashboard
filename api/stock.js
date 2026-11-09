@@ -1,5 +1,7 @@
-// GET /api/stock?symbol=AAPL  -> profile, ratios, analyst insights, earnings
+// GET /api/stock?symbol=AAPL                 -> profile, ratios, analyst insights, earnings
+// GET /api/stock?symbol=AAPL&part=valuation  -> inputs for the valuation & research card (see _lib/valuation.js)
 import { yf, send, fail, symbolsFrom, num, time, NO_VALIDATE, sectorWeightsFrom } from "./_lib/util.js";
+import { valuationData } from "./_lib/valuation.js";
 
 const FULL = [
   "price", "summaryDetail", "defaultKeyStatistics", "financialData", "assetProfile",
@@ -19,6 +21,7 @@ export default async function handler(req, res) {
   const [symbol] = symbolsFrom(req.query.symbol, 1);
   if (!symbol) return send(res, 400, { error: "Add a symbol." }, 0);
   try {
+    if (req.query.part === "valuation") return send(res, 200, await valuationData(symbol), 6 * 3600);
     const s = await summary(symbol);
     const p = s.price || {};
     const d = s.summaryDetail || {};
