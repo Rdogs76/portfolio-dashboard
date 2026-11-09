@@ -2,6 +2,7 @@
 // GET /api/ideas?section=divs    -> dividend stocks (see _lib/divstocks.js)
 // GET /api/ideas?section=etfs    -> dividend ETFs, consistent performers and best returns (see _lib/funds.js)
 // GET /api/ideas?section=returns -> stocks ranked by total return (see _lib/returns.js)
+// GET /api/ideas?section=chains&theme=ai|grid|obesity|aero|housing|energy|sectors -> market-wide bottleneck finder (see _lib/chains.js)
 // (One route serves all three so the app stays within Vercel's 12-function limit on the free plan.)
 //
 // The approach follows how investors spotted memory as the bottleneck in AI infrastructure:
@@ -14,6 +15,7 @@ import { pool, quotes, daily, ranks, clip, r1 } from "./_lib/screen.js";
 import { fundsData } from "./_lib/funds.js";
 import { divStocksData } from "./_lib/divstocks.js";
 import { returnsData } from "./_lib/returns.js";
+import { chainData } from "./_lib/chains.js";
 
 const CHAIN = [
   { key: "cloud", name: "Cloud & AI spenders", role: "Demand: the companies buying AI capacity", symbols: ["MSFT", "AMZN", "GOOGL", "META", "ORCL"] },
@@ -91,6 +93,7 @@ export default async function handler(req, res) {
     if (section === "etfs") return send(res, 200, await fundsData(), 12 * 3600);
     if (section === "divs") return send(res, 200, await divStocksData(), 12 * 3600);
     if (section === "returns") return send(res, 200, await returnsData(), 6 * 3600);
+    if (section === "chains") { const d = await chainData(String(req.query.theme || "ai")); return send(res, 200, d, d.coverage >= 70 ? 6 * 3600 : 600); }
     const chainSyms = CHAIN.flatMap((l) => l.symbols);
     const stockSyms = [...new Set([...chainSyms, ...OTHERS.map((o) => o[0])])];
     const [q, details, flowBars] = await Promise.all([
