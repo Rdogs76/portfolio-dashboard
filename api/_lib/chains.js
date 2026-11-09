@@ -87,7 +87,13 @@ const median = (xs) => { const v = xs.filter((x) => x != null && Number.isFinite
 export async function chainData(themeKey) {
   const theme = THEMES.find((t) => t.key === themeKey) || THEMES[0];
   const syms = [...new Set(theme.links.flatMap((l) => l.symbols))];
-  const [q, est] = await Promise.all([withTimeout(quotes(syms), 8000).catch(() => ({})), pool(syms, 8, estimates)]);
+  // Vercel stops a function at 10s, so stop waiting after ~7s and return whatever has arrived (coverage shows the gap).
+  const estMap = {};
+  const [q] = await Promise.all([
+    withTimeout(quotes(syms), 7000).catch(() => ({})),
+    Promise.race([pool(syms, 8, async (s) => { estMap[s] = await estimates(s).catch(() => null); }), new Promise((r) => setTimeout(r, 7000))]),
+  ]);
+  const est = syms.map((s) => estMap[s]);
   const bySym = Object.fromEntries(syms.map((s, i) => {
     const qq = q[s] || {}, e = est[i] || {};
     const price = num(qq.regularMarketPrice), ma200 = num(qq.twoHundredDayAverage);
@@ -112,10 +118,10 @@ export async function chainData(themeKey) {
   const LR = { rev: ranks(links.map((l) => l.rev90)), growth: ranks(links.map((l) => l.growthNext)), mom: ranks(links.map((l) => l.chg1y)) };
   links.forEach((l, i) => { l.pressure = Math.round((LR.rev[i] ?? 50) * 0.5 + (LR.growth[i] ?? 50) * 0.3 + (LR.mom[i] ?? 50) * 0.2); l.reliable = l.n >= 3; });
 
-  const total = syms.length, got = syms.filter((s) => bySym[s].rev90 != null).length;
-  const coverage = Math.round((got / total) * 100);
+  const total = syms.length, got = syms.filter((s) => bySym[s].rev90 != null).length, priced = syms.filter((s) => bySym[s].chg1y != null).length;
+  const coverage = Math.round((Math.min(got, priced) / total) * 100);
   const demand = links.find((l) => l.demand);
-  const candidates = links.filter((l) => !l.demand && l.reliable && l.rev90 != null).sort((a, b) => b.pressure - a.pressure);
+  const candidates = links.filter((l) => !l.demand && l.reliable && l.rev90 != null).sort((a, b) => b.rev90 - a.rev90);
   const top = candidates[0], second = candidates[1];
   let signal = null, insight = null;
   if (theme.sectors) {
@@ -128,7 +134,7 @@ export async function chainData(themeKey) {
   } else if (top) {
     const lead = top.rev90 - (demand?.rev90 ?? 0);
     // Only call a bottleneck when the supplier's estimates are clearly outpacing the demand link's.
-    if (demand?.rev90 != null && lead >= 2) {
+    if (demand?.reliable && demand.rev90 != null && lead >= 2) {
       signal = top.key;
       insight = `${top.name} shows the strongest estimate-revision lead: analysts raised next year's profit estimates for this group by a median ${top.rev90}% in 90 days (${top.n} of ${top.of} companies with data), versus ${demand.rev90}% for ${demand.name}. One reading is that demand may be running ahead of what that link can supply; this pattern hasn't been tested for reliability here.${second ? ` ${second.name} is next.` : ""}`;
     } else {
