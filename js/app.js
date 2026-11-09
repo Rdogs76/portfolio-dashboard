@@ -1374,13 +1374,16 @@
   }
 
   // ---------- Bottleneck finder (market-wide supply chains) ----------
-  const THEMES_FALLBACK = [["ai", "AI infrastructure"], ["grid", "Electrification & power"], ["obesity", "GLP-1 & obesity drugs"], ["aero", "Aerospace & defence"], ["housing", "Housing & construction"], ["energy", "Oil, gas & LNG"], ["sectors", "All 11 sectors"]];
+  const CHAIN_THEMES = [
+    ["Cross-sector supply chains", [["ai", "AI infrastructure"], ["grid", "Electrification & power"], ["obesity", "GLP-1 & obesity drugs"], ["aero", "Aerospace & defence"], ["housing", "Housing & construction"], ["energy", "Oil, gas & LNG"]]],
+    ["GICS sectors", [["g-it", "Information Technology"], ["g-comm", "Communication Services"], ["g-disc", "Consumer Discretionary"], ["g-staples", "Consumer Staples"], ["g-health", "Health Care"], ["g-fin", "Financials"], ["g-ind", "Industrials"], ["g-energy", "Energy"], ["g-util", "Utilities"], ["g-re", "Real Estate"], ["g-mat", "Materials"]]],
+    ["Whole market", [["sectors", "All 11 GICS sectors"], ["gics25", "All 25 GICS industry groups"]]],
+  ];
   let chainToken = 0;
   async function renderChain() {
     const theme = (state.chainTheme ||= "ai");
     const cache = (state.chainCache ||= {});
-    const themes = cache[theme]?.themes?.map((t) => [t.key, t.name]) || THEMES_FALLBACK;
-    $("#idTheme").innerHTML = themes.map(([k, n]) => `<button data-theme="${k}" aria-pressed="${k === theme}">${esc(n)}</button>`).join("");
+    $("#idTheme").innerHTML = CHAIN_THEMES.map(([label, items]) => `<div class="theme-row"><span class="theme-lbl">${esc(label)}</span><div class="chips">${items.map(([k, n]) => `<button data-theme="${k}" aria-pressed="${k === theme}">${esc(n)}</button>`).join("")}</div></div>`).join("");
     $("#idTheme").onclick = (e) => { const b = e.target.closest("[data-theme]"); if (b && b.dataset.theme !== state.chainTheme) { state.chainTheme = b.dataset.theme; renderChain(); } };
     const token = ++chainToken;
     let d = cache[theme];
@@ -1389,7 +1392,6 @@
       try { d = await api("ideas", { section: "chains", theme }); cache[theme] = d; }
       catch (e) { if (token === chainToken) { $("#idChain").innerHTML = `<p class="empty-line" style="grid-column:1/-1">This supply chain couldn't be loaded right now. Pick it again in a minute.</p>`; } return; }
       if (token !== chainToken) return;
-      if (d.themes) $("#idTheme").innerHTML = d.themes.map((t) => `<button data-theme="${t.key}" aria-pressed="${t.key === theme}">${esc(t.name)}</button>`).join("");
     }
     const links = d.links || [], sectors = d.theme?.sectors;
     $("#idChainAbout").textContent = d.theme?.about || "";
