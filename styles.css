@@ -825,3 +825,17 @@ kbd { font: 11px/1 ui-monospace, Menlo, Consolas, monospace; padding: 2px 5px; b
 .chain.sectors .chain-link::after { display: none; }
 .chain-kv dd.down { color: var(--down); }
 .val-grid-t th:first-child, .val-grid-t td:first-child { width: 30%; }
+
+/* ---------- Model ratings ---------- */
+.val-rating { font-weight: 700; font-size: 12.5px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); white-space: nowrap; }
+.val-headline .val-rating { font-size: 15px; padding: 5px 12px; }
+.val-rating.r-buy { color: var(--up); border-color: color-mix(in srgb, var(--up) 40%, transparent); background: color-mix(in srgb, var(--up) 12%, transparent); }
+.val-rating.r-sell { color: var(--down); border-color: color-mix(in srgb, var(--down) 40%, transparent); background: color-mix(in srgb, var(--down) 12%, transparent); }
+.val-rating.r-hold { color: var(--text-2); }
+.val-rating.r-notrated { color: var(--text-3); font-weight: 600; }
+.idea-filters { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 10px; }
+.rate-status { margin: 0 0 10px; display: grid; gap: 4px; }
+.rate-prog { height: 4px; background: var(--surface-2); border-radius: 2px; overflow: hidden; }
+.rate-prog span { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+.ta-note p { margin: 0 0 6px; }
+.idea-stats .ud { white-space: nowrap; }
