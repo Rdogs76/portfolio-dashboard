@@ -28,12 +28,15 @@
     const currencyIssue = v.financialCurrency && v.priceCurrency && v.financialCurrency !== v.priceCurrency && !fxOk;
     const last = A.at(-1) || {}, prev = A.at(-2) || {};
     let shares = v.impliedShares || v.sharesOutstanding;
-    if (isNum(last.dilutedShares) && isNum(last.shares) && last.shares > 0) {
-      const r = last.dilutedShares / last.shares; if (r > 1 && r < 1.1) shares *= r;
+    // Dilution = diluted ÷ basic weighted-average shares (year-end counts would mix in buybacks).
+    if (isNum(last.dilutedShares) && isNum(last.basicShares) && last.basicShares > 0) {
+      const r = last.dilutedShares / last.basicShares; if (r > 1 && r < 1.1) shares *= r;
     }
+    if (!(shares > 0)) shares = null;
     const tr = A.map((r) => (isNum(r.tax) && isNum(r.pretax) && r.pretax > 0 ? r.tax / r.pretax : null));
     const taxEff = clip(median(tr) ?? (isNum(last.taxRate) ? last.taxRate : 0.21), 0, 0.3);
     const taxMarg = v.region === "CA" ? 0.265 : 0.25;
+    const cad = v.financialCurrency === "CAD";
     const rows = A.map((r) => {
       const capex = isNum(r.capex) ? -Math.abs(r.capex) : null;
       const fcff = isNum(r.cfo) && isNum(capex) ? r.cfo + capex + (isNum(r.interest) ? Math.abs(r.interest) * (1 - taxEff) : 0) - (isNum(r.sbc) ? Math.abs(r.sbc) : 0) : null;
@@ -45,7 +48,7 @@
     const hist = revs.length >= 2 ? Math.pow(revs.at(-1).revenue / revs[0].revenue, 1 / Math.max(1, (revs.at(-1).year - revs[0].year) || revs.length - 1)) - 1 : null;
     const debt = (v.ttm?.totalDebt ?? last.totalDebt ?? 0);
     const cash = (v.ttm?.totalCash ?? last.cash ?? 0);
-    return { A: rows, last: rows.at(-1) || {}, prev: rows.at(-2) || {}, fx, fxOk, currencyIssue, shares, taxEff, taxMarg, hist,
+    return { A: rows, last: rows.at(-1) || {}, prev: rows.at(-2) || {}, fx, fxOk, currencyIssue, shares, taxEff, taxMarg, hist, cad,
       debt, cash, minority: last.minority || 0, preferred: last.preferred || 0, revenueTTM: v.ttm?.revenue ?? last.revenue };
   }
 
@@ -63,56 +66,78 @@
     let wacc = E + D > 0 ? (E / (E + D)) * ke + (D / (E + D)) * kdAt : ke;
     const rawWacc = wacc;
     wacc = clip(wacc, 0.07, 0.13);
-    if (isNum(over.wacc)) wacc = over.wacc;
-    return { rf, rawBeta: raw, beta, ke, cover, spread, kd, kdAt, wE: E / (E + D || 1), wD: D / (E + D || 1), rawWacc, wacc };
+    // Mature-company rate for the terminal value: beta fades to 1 as the business matures.
+    let waccT = clip((E / (E + D || 1)) * (rf + ERP) + (D / (E + D || 1)) * kdAt, 0.07, 0.10);
+    waccT = Math.min(waccT, wacc);
+    if (isNum(over.wacc)) { wacc = over.wacc; waccT = over.wacc; }
+    return { rf, rawBeta: raw, beta, ke, cover, spread, kd, kdAt, wE: E / (E + D || 1), wD: D / (E + D || 1), rawWacc, wacc, waccT };
   }
 
-  // ---------- DCF (FCFF, two-stage with linear fade) ----------
-  function dcfValue(P, v, { g0, gT, wacc, margin, years }) {
-    let rev = P.revenueTTM, pv = 0, fcffN = 0, revN = 0;
+  // ---------- DCF (FCFF, 10 years: hold growth, then fade; discount rate fades to a mature rate) ----------
+  const HORIZON = 10;
+  const holdYears = (g0) => (g0 > 0.15 ? 5 : g0 > 0.08 ? 3 : 0);
+  function dcfValue(P, v, { g0, gT, w0, wT, m0, mT, nopatM, ronic }) {
+    const N = HORIZON, H = holdYears(g0);
+    let rev = P.revenueTTM, pv = 0, df = 1, fcffN = 0, revN = 0;
     const rows = [];
-    for (let t = 1; t <= years; t++) {
-      const g = g0 + (gT - g0) * ((t - 1) / Math.max(1, years - 1));
+    for (let t = 1; t <= N; t++) {
+      const g = t <= H ? g0 : g0 + (gT - g0) * ((t - H) / (N - H));
+      const m = m0 + (mT - m0) * (t / N);
+      const w = w0 + (wT - w0) * ((t - 1) / (N - 1));
       rev *= 1 + g;
-      const fcff = rev * margin, df = Math.pow(1 + wacc, t);
-      pv += fcff / df; fcffN = fcff; revN = rev;
-      rows.push({ t, g, rev, fcff, pv: fcff / df });
+      const fcff = rev * m;
+      const pvT = fcff / (df * Math.sqrt(1 + w)); // mid-year: cash arrives through the year
+      df *= 1 + w;
+      pv += pvT; fcffN = fcff; revN = rev;
+      rows.push({ t, g, m, w, rev, fcff, pv: pvT });
     }
-    const tv = (fcffN * (1 + gT)) / (wacc - gT);
-    const pvTV = tv / Math.pow(1 + wacc, years);
+    // Terminal value: after-tax operating profit minus the reinvestment needed to grow at gT (value-driver formula).
+    const tvCF = isNum(nopatM) && nopatM > 0 && ronic > 0 ? revN * (1 + gT) * nopatM * (1 - gT / ronic) : fcffN * (1 + gT);
+    const tv = tvCF / (wT - gT);
+    const pvTV = tv / df;
     const ev = pv + pvTV;
     const equity = ev - P.debt - P.minority - P.preferred + P.cash;
     const perShare = (equity * P.fx) / P.shares;
     const ebitdaM = mean(P.A.slice(-3).map((r) => r.ebitdaMargin));
     const exitMult = ebitdaM ? tv / (revN * ebitdaM * (1 + gT)) : null;
-    return { rows, pvStage: pv, tv, pvTV, ev, equity, perShare, tvShare: pvTV / ev, exitMult };
+    return { rows, pvStage: pv, tv, pvTV, ev, equity, perShare, tvShare: pvTV / ev, exitMult, H };
   }
 
   function dcfSetup(v, P, C, over = {}) {
     const notes = [];
     if (P.currencyIssue) return { ok: false, reason: `Statements are in ${v.financialCurrency} and the exchange rate couldn't be loaded, so per-share values are hidden.` };
-    if (!(P.revenueTTM > 0) || !isNum(P.shares)) return { ok: false, reason: "Revenue or share count is missing from the data." };
+    if (!(P.revenueTTM > 0) || !(P.shares > 0)) return { ok: false, reason: "Revenue or share count is missing from the data." };
     const margins = P.A.map((r) => r.fcffMargin).filter(isNum);
     if (margins.length < 2) return { ok: false, reason: "Fewer than two years of cash-flow history are available." };
     const opM = P.A.map((r) => r.opMargin).filter(isNum);
     // Cyclical peak: margins were positive every year (so not a company just turning profitable), growth is modest, and the latest margin is far above average.
     const peak = opM.length >= 3 && opM.every((x) => x > 0) && !(P.hist > 0.1) && opM.at(-1) > 1.5 * mean(opM);
     if (peak) notes.push("Peak-cycle: current operating margin is over 1.5× its multi-year average, so a mid-cycle (all-years) cash margin is used.");
-    const marginNorm = peak ? mean(margins) : mean(margins.slice(-3));
+    const avg3 = mean(margins.slice(-3));
+    const ml = P.A.map((r) => r.fcffMargin);
+    const rising = !peak && ml.length >= 3 && [ml.at(-1), ml.at(-2), ml.at(-3)].every(isNum) && ml.at(-1) > ml.at(-2) && ml.at(-2) > ml.at(-3);
+    const marginNorm = peak ? mean(margins) : rising ? Math.max(ml.at(-1), avg3) : avg3;
+    if (rising) notes.push("Cash margin has risen two years running, so the latest year's margin is used instead of the 3-year average.");
     const margin = isNum(over.margin) ? over.margin : marginNorm;
     if (!(margin > 0)) return { ok: false, reason: "Normalized free cash flow (after stock-based pay) is negative, so a DCF isn't meaningful. Not meaningful (N/M)." , marginNorm, peak };
     const c = v.consensus || {};
     const gGuess = [c.revGrowthNY, c.revGrowthCY, v.ttm?.revenueGrowth, P.hist].find(isNum) ?? 0.04;
     const g0 = isNum(over.g0) ? over.g0 : clip(gGuess, -0.05, 0.25);
-    let gT = isNum(over.gT) ? over.gT : (v.region === "CA" ? 0.02 : 0.025);
+    let gT = isNum(over.gT) ? over.gT : (P.cad ? 0.02 : 0.025);
     if (gT >= C.rf) { gT = Math.max(0.005, C.rf - 0.005); notes.push("Terminal growth set just below the risk-free rate."); }
-    const years = g0 > 0.15 ? 10 : 5;
-    return { ok: true, g0, gT, margin, marginNorm, years, peak, notes };
+    if (C.waccT <= gT + 0.005) return { ok: false, reason: "The discount rate is too close to (or below) terminal growth, so the terminal value would be infinite. Raise the WACC or lower terminal growth." , marginNorm, peak };
+    const opM3 = mean(P.A.slice(-3).map((r) => r.opMargin));
+    const nopatM = isNum(opM3) && opM3 > 0 ? opM3 * (1 - P.taxEff) : null;
+    const ebit = P.last.ebit ?? P.last.opInc;
+    const roic = isNum(ebit) && P.last.investedCapital > 0 ? (ebit * (1 - P.taxEff)) / P.last.investedCapital : null;
+    const ronic = Math.max(C.waccT, isNum(roic) ? roic : C.waccT);
+    return { ok: true, g0, gT, margin, marginNorm, years: HORIZON, hold: holdYears(g0), peak, rising, notes, nopatM, ronic };
   }
 
+  const dcfArgs = (S, C, d = 0) => ({ g0: S.g0, gT: S.gT, w0: C.wacc + d, wT: C.waccT + d, m0: S.margin, mT: S.margin, nopatM: S.nopatM, ronic: Math.max(S.ronic, C.waccT + d) });
   function reverseDCF(v, P, S, wacc) {
     const target = v.price;
-    const f = (g) => dcfValue(P, v, { g0: g, gT: S.gT, wacc, margin: S.margin, years: 10 }).perShare - target;
+    const f = (g) => dcfValue(P, v, { ...dcfArgs(S, wacc), g0: g }).perShare - target;
     let lo = -0.2, hi = 0.8, flo = f(lo), fhi = f(hi);
     if (!(isNum(flo) && isNum(fhi)) || flo > 0 || fhi < 0) return null;
     for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2, fm = f(mid); if (fm > 0) hi = mid; else lo = mid; }
@@ -120,7 +145,7 @@
   }
 
   // ---------- Comparable companies ----------
-  function comps(v) {
+  function comps(v, P) {
     const peersAll = v.peers || [];
     let set = peersAll.filter((p) => p.sameIndustry && p.sizeOk);
     let basis = "same industry, 0.2–5× the size";
@@ -138,10 +163,14 @@
     const profitable = ok(m.forwardPE, 1000) || ok(m.trailingPE, 1000);
     const methods = [];
     if (ok(m.forwardPE, 200) && med.forwardPE) methods.push({ key: "Forward P/E", implied: price * (med.forwardPE / m.forwardPE), mine: m.forwardPE, peer: med.forwardPE });
-    const evToCap = m.enterpriseValue && v.marketCap ? m.enterpriseValue / v.marketCap : null;
-    if (ok(m.evEbitda, 200) && med.evEbitda && evToCap > 0.5 && evToCap < 3) {
-      const impliedEV = m.enterpriseValue * (med.evEbitda / m.evEbitda);
-      methods.push({ key: "EV/EBITDA", implied: price * (1 + (impliedEV - m.enterpriseValue) / v.marketCap), mine: m.evEbitda, peer: med.evEbitda });
+    // Build EV ourselves in the quote currency so a mismatch in Yahoo's units can't leak in.
+    const netDebt = P && P.fxOk ? (P.debt - P.cash - 0) * P.fx + (P.minority + P.preferred) * P.fx : null;
+    const EV = isNum(netDebt) && v.marketCap ? v.marketCap + netDebt : null;
+    const ebitdaQ = isNum(v.ttm?.ebitda) && v.ttm.ebitda > 0 && P?.fxOk ? v.ttm.ebitda * P.fx : null;
+    const myEvEbitda = EV && ebitdaQ ? EV / ebitdaQ : null;
+    if (ok(myEvEbitda, 200) && med.evEbitda && EV / v.marketCap > 0.5 && EV / v.marketCap < 3) {
+      const impliedEV = ebitdaQ * med.evEbitda;
+      methods.push({ key: "EV/EBITDA", implied: price * (1 + (impliedEV - EV) / v.marketCap), mine: myEvEbitda, peer: med.evEbitda });
     }
     if (!profitable && ok(m.ps, 200) && med.ps) methods.push({ key: "Price/Sales", implied: price * (med.ps / m.ps), mine: m.ps, peer: med.ps });
     const vals = methods.map((x) => x.implied).filter((x) => isNum(x) && x > 0);
@@ -151,15 +180,18 @@
 
   // ---------- Banks & insurers ----------
   function bankModels(v, P, C) {
-    const roes = P.A.slice(-5).map((r) => (isNum(r.netIncome) && r.equity > 0 ? r.netIncome / r.equity : null)).filter(isNum);
+    const isBank = /Bank/i.test(v.industry || "");
+    const useTB = isBank && P.last.tangibleBook > 0;
+    // Return measured on the same base it's applied to: tangible book (ROTCE) for banks, book (ROE) otherwise.
+    const roes = P.A.slice(-5).map((r) => { const b = useTB ? r.tangibleBook : r.equity; return isNum(r.netIncome) && b > 0 ? r.netIncome / b : null; }).filter(isNum);
     const roe = mean(roes) ?? v.ttm?.roe;
     const payout = isNum(v.dividend?.payout) ? v.dividend.payout : mean(P.A.slice(-3).map((r) => (isNum(r.dividendsPaid) && r.netIncome > 0 ? Math.abs(r.dividendsPaid) / r.netIncome : null)));
     const ke = C.ke;
     const g = Math.min(isNum(roe) && isNum(payout) ? roe * (1 - clip(payout, 0, 1)) : 0.03, 0.04, C.rf);
-    const out = { roe, payout, ke, g, methods: [] };
-    const isBank = /Bank/i.test(v.industry || "");
-    const book = isBank && P.last.tangibleBook > 0 ? P.last.tangibleBook : P.last.equity;
-    if (isNum(roe) && book > 0 && ke > g) {
+    const out = { roe, payout, ke, g, methods: [], useTB };
+    if (P.currencyIssue || !(P.shares > 0)) { out.ddmNote = "Skipped: the exchange rate or share count is missing."; return out; }
+    const book = useTB ? P.last.tangibleBook : P.last.equity;
+    if (isNum(roe) && book > 0 && ke > g && roe > g) {
       const pb = (roe - g) / (ke - g);
       const bvps = (book * P.fx) / P.shares;
       out.methods.push({ key: `Justified P/B (${isBank ? "tangible book" : "book"})`, implied: pb * bvps, detail: `(${(roe * 100).toFixed(1)}% ROE − ${(g * 100).toFixed(1)}% g) ÷ (${(ke * 100).toFixed(1)}% cost of equity − g) = ${pb.toFixed(2)}× book of ${bvps.toFixed(2)}` });
@@ -176,7 +208,7 @@
     const a = P.last, b = P.prev;
     if (!a.totalAssets || !b.totalAssets) return null;
     const roa = (r) => (isNum(r.netIncome) && r.totalAssets ? r.netIncome / r.totalAssets : null);
-    const lev = (r) => (isNum(r.longTermDebt) && r.totalAssets ? r.longTermDebt / r.totalAssets : 0);
+    const lev = (r) => (isNum(r.longTermDebt) && r.totalAssets ? r.longTermDebt / r.totalAssets : null);
     const cr = (r) => (isNum(r.currentAssets) && r.currentLiab ? r.currentAssets / r.currentLiab : null);
     const gm = (r) => (isNum(r.grossProfit) && r.revenue ? r.grossProfit / r.revenue : null);
     const at = (r) => (isNum(r.revenue) && r.totalAssets ? r.revenue / r.totalAssets : null);
@@ -224,8 +256,7 @@
     const vol = Math.sqrt(252) * Math.sqrt(mean(rs.map((x) => (x - mean(rs)) ** 2)));
     const total = stock.at(-1)[1] / stock[0][1] - 1;
     let peak = -Infinity, mdd = 0; for (const [, p] of stock) { peak = Math.max(peak, p); mdd = Math.min(mdd, p / peak - 1); }
-    const downs = rs.filter((x) => x < 0);
-    const dvol = Math.sqrt(252) * Math.sqrt(mean(downs.map((x) => x * x)) || 0);
+    const dvol = Math.sqrt(252) * Math.sqrt(mean(rs.map((x) => Math.min(x, 0) ** 2)) || 0);
     const ann = Math.pow(1 + total, 252 / rs.length) - 1;
     // Beta vs S&P 500 on matching days
     const pairs = [];
@@ -251,25 +282,25 @@
       const S = dcfSetup(v, P, C, over);
       out.setup = S;
       if (S.ok) {
-        const base = dcfValue(P, v, { g0: S.g0, gT: S.gT, wacc: C.wacc, margin: S.margin, years: S.years });
-        const waccs = [-0.01, -0.005, 0, 0.005, 0.01].map((d) => C.wacc + d);
+        const base = dcfValue(P, v, dcfArgs(S, C));
+        const shifts = [-0.01, -0.005, 0, 0.005, 0.01], waccs = shifts.map((d) => C.wacc + d);
         const gs = [0.015, 0.02, 0.025, 0.03];
-        const grid = waccs.map((w) => gs.map((g) => (w > g + 0.01 ? dcfValue(P, v, { g0: S.g0, gT: g, wacc: w, margin: S.margin, years: S.years }).perShare : null)));
+        const grid = shifts.map((d) => gs.map((g) => (C.waccT + d > g + 0.01 ? dcfValue(P, v, { ...dcfArgs(S, C, d), gT: g }).perShare : null)));
         const flat = grid.flat().filter((x) => isNum(x) && x > 0);
         out.dcf = { ...base, grid, waccs, gs, low: flat.length ? Math.min(...flat) : null, high: flat.length ? Math.max(...flat) : null };
-        out.implied = reverseDCF(v, P, S, C.wacc);
-        if (base.perShare > 0) out.methods.push({ key: "DCF (cash flow)", value: base.perShare, low: out.dcf.low, high: out.dcf.high, weight: 0.5 });
+        out.implied = reverseDCF(v, P, S, C);
+        if (isNum(base.perShare) && base.perShare > 0) out.methods.push({ key: "DCF (cash flow)", value: base.perShare, low: out.dcf.low, high: out.dcf.high, weight: 0.5 });
         if (base.tvShare > 0.75) out.notes.push(`Terminal value is ${(base.tvShare * 100).toFixed(0)}% of the DCF value, so the result leans heavily on long-run assumptions.`);
         if (isNum(base.exitMult) && base.exitMult > 15) out.notes.push(`The terminal value implies about ${base.exitMult.toFixed(0)}× EBITDA, which is high relative to typical market multiples; treat the DCF result with caution.`);
         out.notes.push(...S.notes);
       }
     } else if (k === "bank") {
       out.bank = bankModels(v, P, C);
-      for (const m of out.bank.methods) out.methods.push({ key: m.key, value: m.implied, low: m.implied * 0.85, high: m.implied * 1.15, weight: 0.5 / out.bank.methods.length });
+      for (const m of out.bank.methods.filter((x) => isNum(x.implied) && x.implied > 0)) out.methods.push({ key: m.key, value: m.implied, low: m.implied * 0.85, high: m.implied * 1.15, weight: 0.5 / out.bank.methods.length });
     } else {
       out.setup = { ok: false, reason: "REITs are valued on funds from operations (FFO), which this free data doesn't include, so a DCF isn't shown. Peer multiples are used instead." };
     }
-    out.comps = comps(v);
+    out.comps = comps(v, P);
     if (out.comps.ok) out.methods.push({ key: "Peer multiples", value: out.comps.value, low: out.comps.low, high: out.comps.high, weight: 0.5 });
     const W = out.methods.reduce((a, m) => a + m.weight, 0);
     out.fair = W ? out.methods.reduce((a, m) => a + m.value * m.weight, 0) / W : null;
@@ -282,6 +313,7 @@
     else if (price < out.rangeLow) out.verdict = { label: "Price below model range", cls: "up" };
     else if (price > out.rangeHigh) out.verdict = { label: "Price above model range", cls: "down" };
     else out.verdict = { label: "Price within model range", cls: "" };
+    if (out.verdict.label === "Inconclusive") out.fair = null;
     out.vsFair = isNum(out.fair) ? (out.fair / price - 1) * 100 : null;
     // Confidence
     let pts = 0;
@@ -299,12 +331,11 @@
     out.fcfYield = isNum(v.ttm?.fcf) && v.marketCap ? (v.ttm.fcf * P.fx) / v.marketCap : null;
     out.netDebtEbitda = isNum(v.ttm?.ebitda) && v.ttm.ebitda > 0 ? (P.debt - P.cash) / v.ttm.ebitda : null;
     out.coverage = C.cover;
-    const ni = P.last.netIncome, opAt = isNum(ebit) ? ebit * (1 - P.taxEff) : null;
-    out.oneOff = isNum(ni) && isNum(opAt) && Math.abs(opAt) > 0 && Math.abs(ni - opAt) / Math.abs(opAt) > 0.3;
+    out.oneOff = isNum(P.last.unusual) && isNum(P.last.pretax) && Math.abs(P.last.pretax) > 0 && Math.abs(P.last.unusual) / Math.abs(P.last.pretax) > 0.1;
     // Risk & factors
     out.risk = riskSeries ? riskStats(riskSeries.stock, riskSeries.bench, C.rf) : null;
     out.factors = factorScores(v, out);
-    out.riskReward = isNum(out.rangeLow) && isNum(out.rangeHigh) ? { up: (out.rangeHigh / price - 1) * 100, down: (out.rangeLow / price - 1) * 100 } : null;
+    out.riskReward = isNum(out.fair) && isNum(out.rangeLow) && isNum(out.rangeHigh) ? { up: (out.rangeHigh / price - 1) * 100, down: (out.rangeLow / price - 1) * 100 } : null;
     out.thesis = thesis(v, out);
     return out;
   }
@@ -361,7 +392,7 @@
     const head = `<div class="val-top">
       <div class="val-headline">${verdict}<span class="val-conf conf-${o.confidence.toLowerCase()}" title="Measures how complete and stable the inputs are (peer count, cash-flow stability, terminal-value share, currency checks). It does not measure how accurate the model value is.">Input quality: ${o.confidence}</span></div>
       <div class="val-figs">
-        <div><span>Model value</span><b>${P(o.fair)}</b>${isNum(o.vsFair) ? `<small class="${h.cls(o.vsFair)}">${pct(o.vsFair, 0)} vs price</small>` : ""}</div>
+        <div><span>Model value</span><b>${P(o.fair)}</b>${isNum(o.vsFair) ? `<small class="${h.cls(o.vsFair)}">${pct(o.vsFair, 0)} vs price</small>` : o.verdict.label === "Inconclusive" ? "<small>Withheld: methods don't agree</small>" : ""}</div>
         <div><span>Model range</span><b>${P(o.rangeLow)} – ${P(o.rangeHigh)}</b><small>low to high across methods</small></div>
         <div><span>To top / bottom of range</span><b>${o.riskReward ? `<span class="${h.cls(o.riskReward.up)}">${pct(o.riskReward.up, 0)}</span> / <span class="${h.cls(o.riskReward.down)}">${pct(o.riskReward.down, 0)}</span>` : "—"}</b><small>${!o.riskReward ? "No range available" : o.riskReward.up > 0 && o.riskReward.down < 0 ? `${(o.riskReward.up / Math.abs(o.riskReward.down)).toFixed(1)} : 1 upside-to-downside` : o.riskReward.up <= 0 ? "Whole range is below the price" : "Whole range is above the price"}</small></div>
         <div><span>Price</span><b>${P(v.price)}</b><small>${esc(v.priceCurrency || "")}</small></div>
@@ -432,7 +463,7 @@
     if (o.kind === "bank") {
       const b = o.bank;
       return `<h3>Bank & insurer valuation</h3><p class="small muted">Cash-flow DCFs don't work for lenders and insurers (debt is their raw material), so they're valued on returns on equity and dividends, using the cost of equity rather than WACC.</p>${capm}
-        <div class="val-kv"><div><span>Average ROE</span><b>${pc(b.roe)}</b><small>Last 3–5 years</small></div><div><span>Payout ratio</span><b>${pc(b.payout, 0)}</b></div><div><span>Sustainable growth</span><b>${pc(b.g)}</b><small>ROE × retention, capped at 4%</small></div></div>
+        <div class="val-kv"><div><span>${b.useTB ? "Return on tangible equity" : "Average ROE"}</span><b>${pc(b.roe)}</b><small>Average of the last 3–5 years</small></div><div><span>Payout ratio</span><b>${pc(b.payout, 0)}</b></div><div><span>Sustainable growth</span><b>${pc(b.g)}</b><small>ROE × retention, capped at 4%</small></div></div>
         <ul class="val-notes">${b.methods.map((m) => `<li><b>${esc(m.key)}: ${P(m.implied)}</b> <span class="muted">${esc(m.detail)}</span></li>`).join("")}${b.ddmNote ? `<li class="muted">${esc(b.ddmNote)}</li>` : ""}</ul>`;
     }
     if (!S.ok) return `<p class="empty-line">${esc(S.reason || "DCF not available.")}</p>${capm}`;
@@ -441,20 +472,20 @@
       <tr><td>Revenue growth</td>${d.rows.map((r) => `<td class="r">${h.ps(r.g)}</td>`).join("")}</tr>
       <tr><td>Free cash flow (bn ${esc(v.financialCurrency)})</td>${d.rows.map((r) => `<td class="r">${(r.fcff / 1e9).toFixed(2)}</td>`).join("")}</tr>
       <tr><td>Present value</td>${d.rows.map((r) => `<td class="r">${(r.pv / 1e9).toFixed(2)}</td>`).join("")}</tr></tbody></table></div>`;
-    const grid = `<div class="table-wrap"><table class="table val-grid-t"><thead><tr><th>WACC ↓ / terminal growth →</th>${d.gs.map((g) => `<th class="r">${(g * 100).toFixed(1)}%</th>`).join("")}</tr></thead><tbody>${d.grid.map((row, i) => `<tr><td><b>${(d.waccs[i] * 100).toFixed(1)}%</b></td>${row.map((x) => `<td class="r ${isNum(x) ? (x > v.price ? "up" : "down") : ""}" style="${isNum(x) ? `background:color-mix(in srgb, var(${x > v.price ? "--up" : "--down"}) ${Math.round(Math.min(40, Math.abs(x / v.price - 1) * 60))}%, transparent)` : ""}">${isNum(x) ? x.toFixed(2) : "—"}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    const grid = `<div class="table-wrap"><table class="table val-grid-t"><thead><tr><th>Starting WACC ↓ / terminal growth →</th>${d.gs.map((g) => `<th class="r">${(g * 100).toFixed(1)}%</th>`).join("")}</tr></thead><tbody>${d.grid.map((row, i) => `<tr><td><b>${(d.waccs[i] * 100).toFixed(1)}%</b></td>${row.map((x) => `<td class="r ${isNum(x) ? (x > v.price ? "up" : "down") : ""}" style="${isNum(x) ? `background:color-mix(in srgb, var(${x > v.price ? "--up" : "--down"}) ${Math.round(Math.min(40, Math.abs(x / v.price - 1) * 60))}%, transparent)` : ""}">${isNum(x) ? x.toFixed(2) : "—"}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
     const ev = `<div class="val-kv">
-      <div><span>PV of ${S.years}-year cash flows</span><b>${(d.pvStage / 1e9).toFixed(1)} bn</b></div>
+      <div><span>PV of 10-year cash flows</span><b>${(d.pvStage / 1e9).toFixed(1)} bn</b></div>
       <div><span>PV of terminal value</span><b>${(d.pvTV / 1e9).toFixed(1)} bn</b><small>${(d.tvShare * 100).toFixed(0)}% of enterprise value</small></div>
       <div><span>Enterprise value</span><b>${(d.ev / 1e9).toFixed(1)} bn</b></div>
       <div><span>− Debt − minority + cash</span><b>${((d.equity - d.ev) / 1e9).toFixed(1)} bn</b></div>
       <div><span>Equity value per share</span><b>${P(d.perShare)}</b><small>Diluted shares</small></div>
       <div><span>Price implies</span><b>${isNum(o.implied) ? h.ps(o.implied) : "—"}</b><small>starting revenue growth, fading over 10 years (reverse DCF)</small></div>
     </div>`;
-    return `<p class="small muted">Free cash flow to the firm = operating cash flow − capital spending + after-tax interest − stock-based pay (a real cost). The cash margin is a multi-year average applied to trailing revenue; growth fades in a straight line to the terminal rate. Values in ${esc(v.financialCurrency)} unless shown as per-share.</p>
+    return `<p class="small muted">Free cash flow to the firm = operating cash flow − capital spending + after-tax interest − stock-based pay (a real cost). The cash margin is a 3-year average (or the latest year when it has risen two years running) applied to trailing revenue. ${S.hold ? `Growth holds for ${S.hold} years, then fades` : "Growth fades in a straight line"} to the terminal rate by year 10. The discount rate fades from today's WACC to a mature-company rate (beta of 1) by year 10, with mid-year discounting. The terminal value uses after-tax operating profit minus the reinvestment needed to grow. Values in ${esc(v.financialCurrency)} unless shown as per-share.</p>
       <div class="val-ins">${field("g0", "Starting revenue growth %", S.g0, "0.5", `Default from analysts' revenue forecast${isNum(v.consensus?.revGrowthNY) ? "" : " or history"}, capped at 25%`)}
         ${field("margin", "Free-cash-flow margin %", S.margin, "0.5", `Normalized ${pc(S.marginNorm)} (${S.peak ? "all-years average" : "3-year average"})`)}
-        ${field("gT", "Terminal growth %", S.gT, "0.25", `${v.region === "CA" ? "2.0% Canada" : "2.5% US"} default, kept below the risk-free rate`)}
-        ${field("wacc", "WACC %", C.wacc, "0.25", "Discount rate (see build-up below)")}
+        ${field("gT", "Terminal growth %", S.gT, "0.25", `${v.financialCurrency === "CAD" ? "2.0% for CAD reporters" : "2.5%"} default, kept below the risk-free rate`)}
+        ${field("wacc", "WACC %", C.wacc, "0.25", isNum(ov.wacc) ? "Your rate, held flat for all years" : `Starting rate, fading to ${pc(C.waccT)} by year 10`)}
         <button class="btn" data-vreset>Reset to defaults</button></div>
       ${ev}<h3>Projection</h3>${proj}<h3>Sensitivity: value per share</h3>${grid}<h3>Discount rate build-up</h3>${capm}`;
   }
@@ -484,7 +515,7 @@
         ${kv("Free-cash-flow yield", pc(o.fcfYield), "Trailing free cash flow ÷ market cap")}
         ${kv("Net debt / EBITDA", isNum(o.netDebtEbitda) ? o.netDebtEbitda.toFixed(1) + "×" : "—", "Below 2× is comfortable for most industries")}
         ${kv("Interest coverage", isNum(o.coverage) ? o.coverage.toFixed(1) + "×" : "—", "Operating profit ÷ interest expense")}
-        ${o.oneOff ? kv("Earnings quality", "Check", "Net income differs from operating profit by over 30% (one-off items)") : ""}
+        ${o.oneOff ? kv("Earnings quality", "Check", "Unusual items were over 10% of pre-tax profit last year") : ""}
       </div></section></div>`;
   }
 
