@@ -19,12 +19,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261016b">
+  <link rel="stylesheet" href="styles.css?v=20261108a">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
-  <script src="js/explain.js?v=20261016b" defer></script>
-  <script src="js/demo.js?v=20261016b" defer></script>
-  <script src="js/recap.js?v=20261016b" defer></script>
-  <script src="js/app.js?v=20261016b" defer></script>
+  <script src="js/explain.js?v=20261108a" defer></script>
+  <script src="js/demo.js?v=20261108a" defer></script>
+  <script src="js/recap.js?v=20261108a" defer></script>
+  <script src="js/valuation.js?v=20261108a" defer></script>
+  <script src="js/app.js?v=20261108a" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -559,6 +560,13 @@
             <div class="chart-box tall"><canvas id="rsChart" aria-label="Price chart"></canvas></div>
           </article>
 
+          <article class="card val-card" id="rsValCard">
+            <div class="card-head ta-head">
+              <div><h2>Valuation &amp; research</h2><div class="muted small">DCF, peer multiples, quality, risk and positioning, the way buy-side analysts build a case</div></div>
+            </div>
+            <div id="rsVal"></div>
+          </article>
+
           <div class="grid g-2">
             <article class="card">
               <div class="card-head"><h2>Analyst insights</h2><span class="muted small" id="rsAnalystCount"></span></div>
@@ -617,9 +625,11 @@
 
       <div class="sub-view" data-sub="stocks">
         <article class="card">
-          <div class="card-head ta-head"><div><h2>AI build-out: where's the bottleneck?</h2><div class="muted small">Follow the supply chain from the AI spenders down. The link whose profit estimates rise fastest is usually the one demand is outrunning.</div></div></div>
+          <div class="card-head ta-head"><div><h2>Bottleneck finder: where are estimates rising fastest?</h2><div class="muted small" id="idChainAbout">Follow a supply chain from the buyers down and compare how fast analysts are revising each link's profit estimates.</div></div></div>
+          <div class="chips chain-pick" id="idTheme" role="group" aria-label="Choose a supply chain"></div>
           <div class="chain" id="idChain"><div class="skeleton" style="height:180px;width:100%"></div></div>
           <p class="insight" id="idInsight"></p>
+          <p class="chain-meta" id="idChainMeta"></p>
         </article>
         <article class="card">
           <div class="card-head"><h2>Top stock ideas</h2>
