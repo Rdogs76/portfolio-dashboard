@@ -19,13 +19,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261108a">
+  <link rel="stylesheet" href="styles.css?v=20261109d">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
   <script src="js/explain.js?v=20261108a" defer></script>
   <script src="js/demo.js?v=20261108a" defer></script>
   <script src="js/recap.js?v=20261108a" defer></script>
-  <script src="js/valuation.js?v=20261109c" defer></script>
-  <script src="js/app.js?v=20261109c" defer></script>
+  <script src="js/valuation.js?v=20261109d" defer></script>
+  <script src="js/app.js?v=20261109d" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -632,7 +632,14 @@
           <p class="chain-meta" id="idChainMeta"></p>
         </article>
         <article class="card">
-          <div class="card-head"><h2>Top stock ideas</h2>
+          <div class="card-head ta-head"><div><h2>Stock ideas: model ratings</h2><div class="muted small">Each company valued with the DCF, peer and bank models from the Research tab, then rated the way sell-side analysts set ratings</div></div></div>
+          <div class="idea-filters">
+            <div class="chips" id="idRating" role="group" aria-label="Filter by model rating">
+              <button data-rating="all" aria-pressed="true">All ratings</button>
+              <button data-rating="Buy" aria-pressed="false">Buy</button>
+              <button data-rating="Hold" aria-pressed="false">Hold</button>
+              <button data-rating="Sell" aria-pressed="false">Sell</button>
+            </div>
             <div class="chips" id="idFilter" role="group" aria-label="Filter ideas">
               <button data-group="all" aria-pressed="true">All</button>
               <button data-group="AI build-out" aria-pressed="false">AI build-out</button>
@@ -641,8 +648,11 @@
             </div>
           </div>
           <div class="id-status" id="idStatus-stocks"></div>
+          <div id="idRateStatus" class="rate-status"></div>
           <div id="idList"></div>
-          <p class="small muted ta-note">How ideas are scored: each stock is ranked against the others on five things. Rising profit estimates count 30%, expected earnings growth 25%, price momentum 20%, upside to analysts' targets 15% and analyst rating 10%. A high score means several signals agree. The warnings flag stocks that already look stretched or expensive.</p>
+          <div class="small muted ta-note"><p><b>How ratings work.</b> The 12-month target is the blended model value (DCF and peer multiples, or book-value and dividend models for banks) rolled forward one year at the cost of equity, less the dividend. Expected total return = move to the target + dividend yield. <b>Buy</b>: 15% or more. <b>Sell</b>: −5% or worse. <b>Hold</b>: in between. <b>Not rated</b>: the methods disagree by more than 2× or the data is too thin. A Buy is held back to Hold when input quality is low.</p>
+          <p><b>Conviction</b> (0–100) ranks names within a rating, the way a long/short fund sizes positions: 40% valuation upside, 20% quality (Piotroski, return on capital, margins), 20% estimate revisions, 10% momentum, 10% upside-vs-downside asymmetry.</p>
+          <p>These are rules-based model outputs from free Yahoo Finance data, not personal advice or a recommendation from an adviser. Real analysts add channel checks, management access and judgment the model can't. Check the Research tab's assumptions before relying on any rating.</p></div>
         </article>
       </div>
 
