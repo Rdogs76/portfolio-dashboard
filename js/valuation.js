@@ -340,6 +340,34 @@
     return out;
   }
 
+
+  // ---------- Model rating (sell-side style) ----------
+  // 12-month target = today's blended model value grown at the cost of equity, less the dividend paid out
+  // (the textbook way to roll a fair value forward a year). Expected total return = price move to target + dividend yield.
+  // Buy: expected total return of 15% or more. Sell: -5% or worse. Hold: in between. Not rated: methods disagree or data is thin.
+  // Conviction ranks names the way a long/short fund would: 40% valuation upside, 20% quality, 20% estimate revisions,
+  // 10% momentum, 10% upside-vs-downside asymmetry.
+  const BUY = 0.15, SELL = -0.05;
+  function rate(o) {
+    const v = o.v, C = o.C, c = v.consensus || {};
+    if (!isNum(o.fair) || o.verdict.label === "Inconclusive") return { rating: "Not rated", why: o.verdict.why || "Not enough reliable valuation methods." };
+    let dy = isNum(v.dividend?.yield) ? v.dividend.yield : 0;
+    if (dy > 0.25) dy /= 100;
+    const target = o.fair * (1 + C.ke - dy);
+    const etr = target / v.price - 1 + dy;
+    let rating = etr >= BUY ? "Buy" : etr <= SELL ? "Sell" : "Hold";
+    let capped = false;
+    if (rating === "Buy" && o.confidence === "Low") { rating = "Hold"; capped = true; }
+    const f = Object.fromEntries((o.factors || []).map((x) => [x.name, x.val]));
+    const sc = (x, lo, hi) => (isNum(x) ? clip((x - lo) / (hi - lo), 0, 1) * 100 : null);
+    const ratio = o.riskReward && o.riskReward.down < 0 && o.riskReward.up > 0 ? o.riskReward.up / Math.abs(o.riskReward.down) : o.riskReward?.down >= 0 ? 3 : 0.3;
+    const parts = [[sc(etr, -0.2, 0.4), 0.4], [f.Quality, 0.2], [f["Estimate revisions"], 0.2], [f.Momentum, 0.1], [sc(ratio, 0.5, 3), 0.1]];
+    const conviction = Math.round(parts.reduce((a, [x, w]) => a + (isNum(x) ? x : 50) * w, 0) * (o.confidence === "Low" ? 0.8 : 1));
+    const consG = [c.revGrowthNY, c.revGrowthCY].find(isNum);
+    const variant = isNum(o.implied) && isNum(consG) ? o.implied - consG : null;
+    return { rating, capped, target, etr, dy, conviction, variant, consG };
+  }
+
   // Simple, transparent 0–100 factor scores (50 = neutral).
   function factorScores(v, o) {
     const s = (x, lo, hi) => (isNum(x) ? Math.round(clip((x - lo) / (hi - lo), 0, 1) * 100) : null);
@@ -388,14 +416,15 @@
     const pc = (x, d = 1) => (isNum(x) ? pct(x * 100, d, false) : "—");
     h.ps = (x, d = 1) => (isNum(x) ? pct(x * 100, d) : "—");
     const tab = state.tab || "summary";
-    const verdict = `<span class="val-verdict">${esc(o.verdict.label)}</span>`;
+    const R = rate(o);
+    const verdict = `<span class="val-rating r-${R.rating.toLowerCase().replace(/ /g, "")}" title="Rules-based model rating: Buy if expected 12-month total return is 15%+, Sell if -5% or worse, otherwise Hold">Model rating: ${esc(R.rating)}</span><span class="val-verdict">${esc(o.verdict.label)}</span>`;
     const head = `<div class="val-top">
       <div class="val-headline">${verdict}<span class="val-conf conf-${o.confidence.toLowerCase()}" title="Measures how complete and stable the inputs are (peer count, cash-flow stability, terminal-value share, currency checks). It does not measure how accurate the model value is.">Input quality: ${o.confidence}</span></div>
       <div class="val-figs">
         <div><span>Model value</span><b>${P(o.fair)}</b>${isNum(o.vsFair) ? `<small class="${h.cls(o.vsFair)}">${pct(o.vsFair, 0)} vs price</small>` : o.verdict.label === "Inconclusive" ? "<small>Withheld: methods don't agree</small>" : ""}</div>
         <div><span>Model range</span><b>${P(o.rangeLow)} – ${P(o.rangeHigh)}</b><small>low to high across methods</small></div>
         <div><span>To top / bottom of range</span><b>${o.riskReward ? `<span class="${h.cls(o.riskReward.up)}">${pct(o.riskReward.up, 0)}</span> / <span class="${h.cls(o.riskReward.down)}">${pct(o.riskReward.down, 0)}</span>` : "—"}</b><small>${!o.riskReward ? "No range available" : o.riskReward.up > 0 && o.riskReward.down < 0 ? `${(o.riskReward.up / Math.abs(o.riskReward.down)).toFixed(1)} : 1 upside-to-downside` : o.riskReward.up <= 0 ? "Whole range is below the price" : "Whole range is above the price"}</small></div>
-        <div><span>Price</span><b>${P(v.price)}</b><small>${esc(v.priceCurrency || "")}</small></div>
+        <div><span>12-month target</span><b>${isNum(R.target) ? P(R.target) : "—"}</b><small>${isNum(R.etr) ? `<span class="${h.cls(R.etr)}">${pct(R.etr * 100, 0)}</span> expected total return vs ${P(v.price)}${R.dy ? ` (incl. ${(R.dy * 100).toFixed(1)}% dividend)` : ""}` : `Price ${P(v.price)}`}</small></div>
       </div>
     </div>
     ${o.verdict.why ? `<p class="val-why">${esc(o.verdict.why)}</p>` : ""}
@@ -532,5 +561,5 @@
     return `<h3>Factor profile</h3><p class="small muted">0–100, where 50 is neutral. Uses common factor definitions from quantitative screening; scores are relative and simplified.</p>${fac}<h3>Risk (past year)</h3>${riskHtml}<h3>Sentiment & positioning</h3>${pos}`;
   }
 
-  window.Valuation = { run, render, riskStats };
+  window.Valuation = { run, render, riskStats, rate, BUY, SELL };
 })();
