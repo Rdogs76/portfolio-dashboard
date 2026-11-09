@@ -95,7 +95,8 @@
     const margins = P.A.map((r) => r.fcffMargin).filter(isNum);
     if (margins.length < 2) return { ok: false, reason: "Fewer than two years of cash-flow history are available." };
     const opM = P.A.map((r) => r.opMargin).filter(isNum);
-    const peak = opM.length >= 3 && mean(opM) > 0 && opM.at(-1) > 1.5 * mean(opM);
+    // Cyclical peak: margins were positive every year (so not a company just turning profitable), growth is modest, and the latest margin is far above average.
+    const peak = opM.length >= 3 && opM.every((x) => x > 0) && !(P.hist > 0.1) && opM.at(-1) > 1.5 * mean(opM);
     if (peak) notes.push("Peak-cycle: current operating margin is over 1.5× its multi-year average, so a mid-cycle (all-years) cash margin is used.");
     const marginNorm = peak ? mean(margins) : mean(margins.slice(-3));
     const margin = isNum(over.margin) ? over.margin : marginNorm;
@@ -467,7 +468,7 @@
       ${c.ok ? `<tr class="val-med"><td><b>Peer median</b> <span class="muted small">${esc(c.basis)}</span></td><td></td><td></td><td class="r">${x(c.med.forwardPE)}</td><td class="r">${x(c.med.evEbitda)}</td><td class="r">${x(c.med.ps)}</td><td class="r">${x(c.med.pb)}</td><td></td></tr>` : ""}
       ${peerRows}</tbody></table></div>`;
     const methods = c.ok ? `<ul class="val-notes">${c.methods.map((mm) => `<li><b>${esc(mm.key)}: ${P(mm.implied)}</b> <span class="muted">— ${mm.mine.toFixed(1)}× here vs ${mm.peer.toFixed(1)}× peer median${mm.key === "EV/EBITDA" ? ", with net debt carried through" : ""}</span></li>`).join("")}</ul>` : `<p class="empty-line">${esc(c.reason)}</p>`;
-    return `<p class="small muted">Peers start from Yahoo's "similar companies" list, then keep only those in the same industry (or sector) and between 0.2× and 5× the size. Negative or extreme multiples (P/E over 80×) are excluded and medians are used. Price/Sales is used only for unprofitable companies.</p>${methods}${table}`;
+    return `<p class="small muted">Peers start from Yahoo's "similar companies" list (topped up from a basket of large companies in the same sector when too few match), then keep only those in the same industry (or sector) and between 0.2× and 5× the size. Negative or extreme multiples (P/E over 80×) are excluded and medians are used. Price/Sales is used only for unprofitable companies.</p>${methods}${table}`;
   }
 
   function capTxt(x) { return !isNum(x) ? "—" : x >= 1e12 ? (x / 1e12).toFixed(2) + " tn" : (x / 1e9).toFixed(x >= 1e10 ? 0 : 1) + " bn"; }
