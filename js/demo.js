@@ -247,7 +247,7 @@
       housing: [["Homebuilders", "DHI LEN PHM NVR"], ["Building products", "BLDR MAS OC TREX"], ["Lumber & aggregates", "WFG.TO WY VMC MLM"], ["HVAC & appliances", "CARR TT LII WHR"], ["Home improvement retail", "HD LOW FND WSM"]],
       energy: [["Producers", "XOM CVX COP CNQ.TO"], ["Oilfield services", "SLB HAL BKR WFRD"], ["Pipelines", "ENB.TO TRP.TO WMB KMI"], ["Natural gas & LNG", "LNG EQT AR CTRA"], ["Refiners", "MPC VLO PSX PBF"]],
       sectors: [["Technology", "AAPL MSFT NVDA AVGO ORCL"], ["Communication", "GOOGL META NFLX TMUS DIS"], ["Consumer discretionary", "AMZN TSLA HD MCD BKNG"], ["Consumer staples", "WMT COST PG KO PEP"], ["Healthcare", "LLY UNH JNJ ABBV MRK"], ["Financials", "JPM V MA BAC RY.TO"], ["Industrials", "GE CAT RTX UNP CP.TO"], ["Energy", "XOM CVX COP CNQ.TO ENB.TO"], ["Utilities", "NEE SO DUK CEG FTS.TO"], ["Real estate", "PLD AMT WELL EQIX SPG"], ["Materials", "LIN SHW FCX NEM NTR.TO"]] };
-    const key = L[theme] ? theme : "ai", sectors = key === "sectors";
+    const key = L[theme] ? theme : theme === "gics25" || /^g-(fin|re)$/.test(theme) ? "sectors" : "ai", sectors = key === "sectors";
     const r = rng(hash("chain" + key + new Date().toDateString())), R = (a, b) => +(a + r() * (b - a)).toFixed(1);
     const links = L[key].map(([name, syms], i) => { const ss = syms.split(" "); return { key: "l" + i, name, role: i === 0 && !sectors ? "Demand" : "Supplier", demand: i === 0 && !sectors, n: ss.length, of: ss.length, reliable: true, rev90: R(-6, 14), growthNext: R(-5, 35), chg1y: R(-20, 80), pressure: Math.round(R(10, 95)), stocks: ss.map((s) => ({ symbol: s, name: info(s).name, rev90: R(-8, 18) })) }; });
     const cand = links.filter((l) => !l.demand).sort((a, b) => b.rev90 - a.rev90);
