@@ -410,7 +410,7 @@
     if (next) { const d = Math.round((next - Date.now()) / 86400000); items.push(`<li><b>Earnings</b> ${new Date(next).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })} <span class="muted">(${d <= 0 ? "today" : `in ${d} days`})</span></li>`); }
     if (c.exDividend && c.exDividend > Date.now() - 86400000) items.push(`<li><b>Ex-dividend</b> ${new Date(c.exDividend).toLocaleDateString("en-CA", { month: "short", day: "numeric" })}</li>`);
     const ch = c.changes || [];
-    const up = ch.filter((x) => x.action === "up").length, down = ch.filter((x) => x.action === "down").length;
+    const up = ch.filter((x) => /^up/i.test(x.action || "")).length, down = ch.filter((x) => /^down/i.test(x.action || "")).length;
     if (ch.length) items.push(`<li><b>Analyst actions (120 days)</b> ${ch.length} rating ${ch.length === 1 ? "change" : "changes"}: <span class="up">${up} upgrade${up === 1 ? "" : "s"}</span>, <span class="down">${down} downgrade${down === 1 ? "" : "s"}</span>${ch[0] ? `. Latest: ${esc(ch[0].firm)} ${esc(ch[0].to || "")}${ch[0].target ? `, target ${ch[0].target}` : ""} (${new Date(ch[0].date).toLocaleDateString("en-CA", { month: "short", day: "numeric" })}; source Yahoo Finance)` : ""}</li>`);
     const r = v.consensus?.epsRev90NY ?? v.consensus?.epsRev90CY;
     if (isNum(r)) items.push(`<li><b>Estimate trend</b> next year's EPS estimate <span class="${h.cls(r)}">${r >= 0 ? "up" : "down"} ${Math.abs(r).toFixed(1)}%</span> in 90 days</li>`);
