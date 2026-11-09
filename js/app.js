@@ -1088,7 +1088,7 @@
     $("#rsName").textContent = `${d.name} (${sym})`;
     $("#rsPrice").textContent = money(price, d.currency);
     $("#rsChange").innerHTML = `<span class="chg ${cls(change)}">${signedMoney(change, d.currency)} (${pct(changePct)})</span>`;
-    renderAnalyst(d, price); renderEarningsCard(d); renderRatios(d); renderAbout(d); renderTopAnalysts(sym, d); renderValuation(sym, d);
+    renderAnalyst(d, price); renderEarningsCard(d); renderRatios(d); renderAbout(d); renderTopAnalysts(sym, d); renderValuation(sym, d, price);
     $("#rsChanges").innerHTML = d.analyst?.changes?.length ? d.analyst.changes.slice(0, 8).map((c) => {
       const verb = c.action === "up" ? "Upgraded" : c.action === "down" ? "Downgraded" : c.action === "init" ? "Initiated" : c.action === "reit" ? "Reiterated" : "Maintained";
       return `<li><div class="grow"><div class="title">${esc(c.firm)}</div><div class="meta">${verb}${c.from && c.from !== c.to ? ` from ${esc(c.from)}` : ""} to <b>${esc(c.to || "—")}</b></div></div><div class="meta">${fmtDate(c.date, { month: "short", day: "numeric" })}</div></li>`;
@@ -1097,7 +1097,7 @@
   }
   // ---------- Valuation & research (models in js/valuation.js) ----------
   let valToken = 0;
-  async function renderValuation(sym, d) {
+  async function renderValuation(sym, d, livePrice) {
     const card = $("#rsValCard"), box = $("#rsVal");
     if (!window.Valuation || (d.type && d.type !== "EQUITY")) { card.hidden = true; return; }
     card.hidden = false;
@@ -1122,6 +1122,8 @@
         return;
       }
     }
+    // The valuation inputs are cached for hours; always compare against the live price shown on the page.
+    if (Number.isFinite(livePrice) && livePrice > 0) vs.data.price = livePrice;
     draw();
     box.onclick = (e) => {
       const t = e.target.closest("[data-vtab]"); if (t) { vs.tab = t.dataset.vtab; draw(); return; }
