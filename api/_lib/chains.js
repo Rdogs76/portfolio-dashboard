@@ -130,9 +130,9 @@ export async function chainData(themeKey) {
     // Only call a bottleneck when the supplier's estimates are clearly outpacing the demand link's.
     if (demand?.rev90 != null && lead >= 2) {
       signal = top.key;
-      insight = `${top.name} shows the strongest estimate-revision lead: analysts raised next year's profit estimates for this group by a median ${top.rev90}% in 90 days (${top.n} of ${top.of} companies with data), versus ${demand.rev90}% for ${demand.name.toLowerCase()}. One reading is that demand may be running ahead of what that link can supply; this pattern hasn't been tested for reliability here.${second ? ` ${second.name} is next.` : ""}`;
+      insight = `${top.name} shows the strongest estimate-revision lead: analysts raised next year's profit estimates for this group by a median ${top.rev90}% in 90 days (${top.n} of ${top.of} companies with data), versus ${demand.rev90}% for ${demand.name}. One reading is that demand may be running ahead of what that link can supply; this pattern hasn't been tested for reliability here.${second ? ` ${second.name} is next.` : ""}`;
     } else {
-      insight = `No link is clearly pulling ahead yet. ${top.name} leads on estimate revisions (median ${top.rev90 ?? "—"}%), but ${demand ? `${demand.name.toLowerCase()} ${demand.rev90 != null ? `are at ${demand.rev90}%` : "have no data"}` : "the demand link has no data"}, so demand isn't clearly outrunning supply. Watch for a link whose estimates start to pull ahead.`;
+      insight = `No link is clearly pulling ahead yet. ${top.name} leads on estimate revisions (median ${top.rev90 ?? "—"}%), but ${demand ? `${demand.name} ${demand.rev90 != null ? `are at ${demand.rev90}%` : "have no data"}` : "the demand link has no data"}, so demand isn't clearly outrunning supply. Watch for a link whose estimates start to pull ahead.`;
     }
   }
   return {
