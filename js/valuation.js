@@ -11,6 +11,7 @@
   const mean = (xs) => { const v = xs.filter(isNum); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
   const median = (xs) => { const v = xs.filter(isNum).sort((a, b) => a - b); if (!v.length) return null; const m = v.length >> 1; return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
   const ERP = 0.045;
+  const CYCLICAL = /Basic Materials|Energy|Semiconductor Memory|Computer Hardware|Data Storage|Steel|Copper|Aluminum|Gold|Silver|Mining|Oil|Gas|Chemicals|Auto Manufacturers|Auto Parts|Airlines|Marine Shipping|Lumber|Building Materials|Residential Construction/i;
 
   // ---------- Classification ----------
   function kind(v) {
@@ -115,10 +116,23 @@
     if (peak) notes.push("Peak-cycle: current operating margin is over 1.5× its multi-year average, so a mid-cycle (all-years) cash margin is used.");
     const avg3 = mean(margins.slice(-3));
     const ml = P.A.map((r) => r.fcffMargin);
+    // Cyclical industries are valued on mid-cycle (all-years) margins, as analysts do, so a boom isn't capitalized forever.
+    const cyclical = CYCLICAL.test(`${v.sector || ""} ${v.industry || ""}`);
+    if (cyclical && !peak && margins.length >= 3) {
+      const mid = mean(margins);
+      const boom = avg3 > mid * 1.2;
+      if (boom) notes.push("Cyclical industry: a mid-cycle (all-years average) cash margin is used instead of recent boom-level margins.");
+      const margin0 = isNum(over.margin) ? over.margin : Math.min(avg3, mid);
+      return finishSetup(v, P, C, over, notes, margin0, Math.min(avg3, mid), boom, false, true);
+    }
     const rising = !peak && ml.length >= 3 && [ml.at(-1), ml.at(-2), ml.at(-3)].every(isNum) && ml.at(-1) > ml.at(-2) && ml.at(-2) > ml.at(-3);
     const marginNorm = peak ? mean(margins) : rising ? Math.max(ml.at(-1), avg3) : avg3;
     if (rising) notes.push("Cash margin has risen two years running, so the latest year's margin is used instead of the 3-year average.");
     const margin = isNum(over.margin) ? over.margin : marginNorm;
+    return finishSetup(v, P, C, over, notes, margin, marginNorm, peak, rising);
+  }
+
+  function finishSetup(v, P, C, over, notes, margin, marginNorm, peak, rising, cyclical = false) {
     if (!(margin > 0)) return { ok: false, reason: "Normalized free cash flow (after stock-based pay) is negative, so a DCF isn't meaningful. Not meaningful (N/M)." , marginNorm, peak };
     const c = v.consensus || {};
     const gGuess = [c.revGrowthNY, c.revGrowthCY, v.ttm?.revenueGrowth, P.hist].find(isNum) ?? 0.04;
@@ -126,12 +140,12 @@
     let gT = isNum(over.gT) ? over.gT : (P.cad ? 0.02 : 0.025);
     if (gT >= C.rf) { gT = Math.max(0.005, C.rf - 0.005); notes.push("Terminal growth set just below the risk-free rate."); }
     if (C.waccT <= gT + 0.005) return { ok: false, reason: "The discount rate is too close to (or below) terminal growth, so the terminal value would be infinite. Raise the WACC or lower terminal growth." , marginNorm, peak };
-    const opM3 = mean(P.A.slice(-3).map((r) => r.opMargin));
+    const opM3 = mean((cyclical ? P.A : P.A.slice(-3)).map((r) => r.opMargin));
     const nopatM = isNum(opM3) && opM3 > 0 ? opM3 * (1 - P.taxEff) : null;
     const ebit = P.last.ebit ?? P.last.opInc;
     const roic = isNum(ebit) && P.last.investedCapital > 0 ? (ebit * (1 - P.taxEff)) / P.last.investedCapital : null;
     const ronic = Math.max(C.waccT, isNum(roic) ? roic : C.waccT);
-    return { ok: true, g0, gT, margin, marginNorm, years: HORIZON, hold: holdYears(g0), peak, rising, notes, nopatM, ronic };
+    return { ok: true, g0, gT, margin, marginNorm, years: HORIZON, hold: holdYears(g0), peak, rising, cyclical, notes, nopatM, ronic };
   }
 
   const dcfArgs = (S, C, d = 0) => ({ g0: S.g0, gT: S.gT, w0: C.wacc + d, wT: C.waccT + d, m0: S.margin, mT: S.margin, nopatM: S.nopatM, ronic: Math.max(S.ronic, C.waccT + d) });
@@ -355,6 +369,7 @@
     if (dy > 0.25) dy /= 100;
     const target = o.fair * (1 + C.ke - dy);
     const etr = target / v.price - 1 + dy;
+    if (etr > 1) return { rating: "Not rated", why: `The model shows over 100% expected return (${Math.round(etr * 100)}%), which usually means the inputs aren't representative (boom-level margins, a one-off cash-flow year or thin peers). Check the DCF tab.` };
     let rating = etr >= BUY ? "Buy" : etr <= SELL ? "Sell" : "Hold";
     let capped = false;
     if (rating === "Buy" && o.confidence === "Low") { rating = "Hold"; capped = true; }
@@ -423,7 +438,7 @@
       <div class="val-figs">
         <div><span>Model value</span><b>${P(o.fair)}</b>${isNum(o.vsFair) ? `<small class="${h.cls(o.vsFair)}">${pct(o.vsFair, 0)} vs price</small>` : o.verdict.label === "Inconclusive" ? "<small>Withheld: methods don't agree</small>" : ""}</div>
         <div><span>Model range</span><b>${P(o.rangeLow)} – ${P(o.rangeHigh)}</b><small>low to high across methods</small></div>
-        <div><span>To top / bottom of range</span><b>${o.riskReward ? `<span class="${h.cls(o.riskReward.up)}">${pct(o.riskReward.up, 0)}</span> / <span class="${h.cls(o.riskReward.down)}">${pct(o.riskReward.down, 0)}</span>` : "—"}</b><small>${!o.riskReward ? "No range available" : o.riskReward.up > 0 && o.riskReward.down < 0 ? `${(o.riskReward.up / Math.abs(o.riskReward.down)).toFixed(1)} : 1 upside-to-downside` : o.riskReward.up <= 0 ? "Whole range is below the price" : "Whole range is above the price"}</small></div>
+        <div><span>To top / bottom of range</span><b>${o.riskReward ? `<span class="${h.cls(o.riskReward.up)}">${pct(o.riskReward.up, 0)}</span> / <span class="${h.cls(o.riskReward.down)}">${pct(o.riskReward.down, 0)}</span>` : "—"}</b><small>${!o.riskReward ? "No range available" : o.riskReward.up > 0 && o.riskReward.down < 0 ? (o.riskReward.down > -3 ? "Little modeled downside to the range bottom" : `${Math.min(20, o.riskReward.up / Math.abs(o.riskReward.down)).toFixed(1)} : 1 upside-to-downside`) : o.riskReward.up <= 0 ? "Whole range is below the price" : "Whole range is above the price"}</small></div>
         <div><span>12-month target</span><b>${isNum(R.target) ? P(R.target) : "—"}</b><small>${isNum(R.etr) ? `<span class="${h.cls(R.etr)}">${pct(R.etr * 100, 0)}</span> expected total return vs ${P(v.price)}${R.dy ? ` (incl. ${(R.dy * 100).toFixed(1)}% dividend)` : ""}` : `Price ${P(v.price)}`}</small></div>
       </div>
     </div>
@@ -512,7 +527,7 @@
     </div>`;
     return `<p class="small muted">Free cash flow to the firm = operating cash flow − capital spending + after-tax interest − stock-based pay (a real cost). The cash margin is a 3-year average (or the latest year when it has risen two years running) applied to trailing revenue. ${S.hold ? `Growth holds for ${S.hold} years, then fades` : "Growth fades in a straight line"} to the terminal rate by year 10. The discount rate fades from today's WACC to a mature-company rate (beta of 1) by year 10, with mid-year discounting. The terminal value uses after-tax operating profit minus the reinvestment needed to grow. Values in ${esc(v.financialCurrency)} unless shown as per-share.</p>
       <div class="val-ins">${field("g0", "Starting revenue growth %", S.g0, "0.5", `Default from analysts' revenue forecast${isNum(v.consensus?.revGrowthNY) ? "" : " or history"}, capped at 25%`)}
-        ${field("margin", "Free-cash-flow margin %", S.margin, "0.5", `Normalized ${pc(S.marginNorm)} (${S.peak ? "all-years average" : "3-year average"})`)}
+        ${field("margin", "Free-cash-flow margin %", S.margin, "0.5", `Normalized ${pc(S.marginNorm)} (${S.cyclical ? "mid-cycle, cyclical industry" : S.peak ? "all-years average" : S.rising ? "latest year, margins rising" : "3-year average"})`)}
         ${field("gT", "Terminal growth %", S.gT, "0.25", `${v.financialCurrency === "CAD" ? "2.0% for CAD reporters" : "2.5%"} default, kept below the risk-free rate`)}
         ${field("wacc", "WACC %", C.wacc, "0.25", isNum(ov.wacc) ? "Your rate, held flat for all years" : `Starting rate, fading to ${pc(C.waccT)} by year 10`)}
         <button class="btn" data-vreset>Reset to defaults</button></div>
