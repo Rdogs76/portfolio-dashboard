@@ -11,6 +11,8 @@ import { THEMES } from "./chains.js";
 const SECTOR_KEY = { "Technology": "tech", "Communication Services": "comm", "Consumer Cyclical": "disc", "Consumer Defensive": "staples", "Healthcare": "health", "Financial Services": "fin", "Industrials": "ind", "Energy": "energy", "Utilities": "util", "Real Estate": "re", "Basic Materials": "mat" };
 
 const YEAR = 365.25 * 86400000;
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+const clipRev = (x) => (x == null ? null : Math.max(-50, Math.min(100, x)));
 const FIELDS = {
   revenue: ["totalRevenue", "operatingRevenue"], grossProfit: ["grossProfit"], ebitda: ["EBITDA", "normalizedEBITDA"],
   ebit: ["EBIT"], opInc: ["operatingIncome"], netIncome: ["netIncomeCommonStockholders", "netIncome"],
@@ -23,7 +25,7 @@ const FIELDS = {
   leases: ["capitalLeaseObligations", "longTermCapitalLeaseObligation"], cash: ["cashCashEquivalentsAndShortTermInvestments", "cashAndCashEquivalents"],
   equity: ["commonStockEquity", "stockholdersEquity"], tangibleBook: ["tangibleBookValue"], minority: ["minorityInterest"],
   preferred: ["preferredStock"], investedCapital: ["investedCapital"], shares: ["ordinarySharesNumber", "shareIssued"],
-  dilutedShares: ["dilutedAverageShares"], dilutedEPS: ["dilutedEPS"],
+  dilutedShares: ["dilutedAverageShares"], basicShares: ["basicAverageShares"], dilutedEPS: ["dilutedEPS"],
 };
 
 function pick(row, keys) { for (const k of keys) { const v = num(row[k]); if (v != null) return v; } return null; }
@@ -44,9 +46,8 @@ async function financials(symbol) {
 
 async function fx(from, to) {
   if (!from || !to || from === to) return 1;
-  // Yahoo quotes some prices in pence/cents units (e.g. GBp); treat those as their base currency.
   try {
-    const q = await yf().quote(`${from}${to}=X`, {}, NO_VALIDATE);
+    const q = await withTimeout(yf().quote(`${from}${to}=X`, {}, NO_VALIDATE), 3000);
     const r = num(q?.regularMarketPrice);
     return r && r > 0 ? r : null;
   } catch { return null; }
@@ -54,7 +55,7 @@ async function fx(from, to) {
 
 const PEER_MODULES = ["price", "summaryDetail", "defaultKeyStatistics", "financialData", "assetProfile"];
 async function peerData(symbol) {
-  const s = await yf().quoteSummary(symbol, { modules: PEER_MODULES }, NO_VALIDATE);
+  const s = await withTimeout(yf().quoteSummary(symbol, { modules: PEER_MODULES }, NO_VALIDATE), 3000);
   const p = s.price || {}, d = s.summaryDetail || {}, k = s.defaultKeyStatistics || {}, f = s.financialData || {}, a = s.assetProfile || {};
   return {
     symbol, name: p.shortName || p.longName || symbol, currency: p.currency || null,
@@ -84,7 +85,7 @@ export async function valuationData(symbol) {
   // Consensus estimates
   const trend = s.earningsTrend?.trend || [];
   const tp = (id) => trend.find((t) => t.period === id);
-  const rev90 = (t) => { const e = t?.epsTrend; const now = num(e?.current), ago = num(e?.["90daysAgo"]); return now != null && ago ? ((now - ago) / Math.abs(ago)) * 100 : null; };
+  const rev90 = (t) => { const e = t?.epsTrend; const now = num(e?.current), ago = num(e?.["90daysAgo"]); return now != null && ago ? clipRev(((now - ago) / Math.abs(ago)) * 100) : null; };
   const cy = tp("0y"), ny = tp("+1y"), ltg = tp("+5y") || tp("LTG");
   const consensus = {
     epsCY: num(cy?.earningsEstimate?.avg), epsNY: num(ny?.earningsEstimate?.avg),
