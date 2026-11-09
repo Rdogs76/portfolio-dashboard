@@ -100,11 +100,20 @@ export async function valuationData(symbol) {
   const subject = { sector: a.sector || null, industry: a.industry || null };
   const peerSyms = (recs?.recommendedSymbols || recs?.[0]?.recommendedSymbols || []).map((r) => r.symbol).filter((x) => x && x !== symbol).slice(0, 10);
   let peersRaw = (await pool(peerSyms, 6, peerData)).filter(Boolean);
-  const sizeOk = (pr) => !!(marketCap && pr.marketCap && pr.marketCap / marketCap >= 0.2 && pr.marketCap / marketCap <= 5);
+  // Peers can be quoted in another currency (e.g. a TSX stock vs US peers), so compare sizes in the subject's currency.
+  const fxCache = {};
+  const toLocal = async (list) => {
+    for (const cur of new Set(list.map((pr) => pr.currency).filter((c) => c && c !== priceCur))) if (!(cur in fxCache)) fxCache[cur] = await fx(cur, priceCur);
+    for (const pr of list) { const r = !pr.currency || pr.currency === priceCur ? 1 : fxCache[pr.currency]; pr.marketCapLocal = pr.marketCap && r ? pr.marketCap * r : null; }
+  };
+  await toLocal(peersRaw);
+  const sizeOk = (pr) => !!(marketCap && pr.marketCapLocal && pr.marketCapLocal / marketCap >= 0.2 && pr.marketCapLocal / marketCap <= 5);
   if (peersRaw.filter((pr) => pr.sector === subject.sector && sizeOk(pr)).length < 3) {
     const basket = THEMES.find((t) => t.key === "sectors")?.links.find((l) => l.key === SECTOR_KEY[subject.sector]);
     const extra = (basket?.symbols || []).filter((x) => x !== symbol && !peerSyms.includes(x));
-    peersRaw = peersRaw.concat((await pool(extra, 6, peerData)).filter(Boolean));
+    const more = (await pool(extra, 6, peerData)).filter(Boolean);
+    await toLocal(more);
+    peersRaw = peersRaw.concat(more);
   }
   const peers = peersRaw.map((pr) => ({
     ...pr,
