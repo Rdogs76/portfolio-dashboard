@@ -839,3 +839,7 @@ kbd { font: 11px/1 ui-monospace, Menlo, Consolas, monospace; padding: 2px 5px; b
 .rate-prog span { display: block; height: 100%; background: var(--accent); transition: width .3s; }
 .ta-note p { margin: 0 0 6px; }
 .idea-stats .ud { white-space: nowrap; }
+.chain-pick { display: grid; gap: 8px; margin-bottom: 12px; }
+.theme-row { display: grid; grid-template-columns: 170px 1fr; gap: 10px; align-items: start; }
+.theme-lbl { font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; padding-top: 7px; }
+@media (max-width: 760px) { .theme-row { grid-template-columns: 1fr; gap: 4px; } .theme-lbl { padding-top: 0; } }
