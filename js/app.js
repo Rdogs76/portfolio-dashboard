@@ -1412,27 +1412,94 @@
     $("#idChainMeta").textContent = `Data coverage ${d.coverage}% · company lists are an editorial selection, reviewed ${fmtDate(Date.parse(d.listDate + "T12:00:00Z"), { month: "short", year: "numeric" })} · medians shown. A signal is a pattern in analysts' estimates, not a prediction or a recommendation. Updated ${fmtDate(d.asOf, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
   }
 
-  function renderStockIdeas(d) {
-    renderChain();
-    setPressed($("#idFilter"), "group", state.idGroup);
-    const g = state.idGroup;
-    const list = (d.stocks || []).filter((s) => g === "all" || (g === "other" ? s.group !== "AI build-out" && s.group !== "Canada" : s.group === g));
-    const show = state.idShowAll ? list : list.slice(0, 12);
-    $("#idList").innerHTML = list.length ? `<ol class="idea-list">${show.map((s, i) => `<li class="idea clickable" data-symbol="${esc(s.symbol)}">
+  // ---------- Stock ideas, rated with the valuation engine ----------
+  // Every idea is run through the same DCF / peer / bank models as the Research card, then given a
+  // sell-side style 12-month target, expected total return and Buy / Hold / Sell model rating, and
+  // ranked by a long/short-fund style conviction score. Valuations load a few at a time and fill in.
+  const RATING_ORDER = { Buy: 0, Hold: 1, Sell: 2, "Not rated": 3 };
+  let ideaRun = 0;
+  function valueIdeas(stocks) {
+    const iv = (state.ideaVals ||= {});
+    const todo = stocks.map((s) => s.symbol).filter((sym) => !(sym in iv));
+    if (!todo.length || !window.Valuation) return;
+    const run = ++ideaRun;
+    todo.forEach((sym) => (iv[sym] = null));
+    let i = 0, pending = 0;
+    const redraw = () => { const dd = state.ideasData?.stocks?.data; if (state.tab === "ideas" && state.idSub === "stocks" && dd) renderStockIdeas(dd, true); };
+    const worker = async () => {
+      while (i < todo.length && run === ideaRun) {
+        const sym = todo[i++];
+        try {
+          const v = await api("stock", { symbol: sym, part: "valuation" });
+          const o = Valuation.run(v, {}, null);
+          iv[sym] = { o, r: Valuation.rate(o) };
+        } catch { iv[sym] = { err: true }; }
+        if (++pending % 3 === 0) redraw();
+      }
+    };
+    Promise.all([worker(), worker(), worker(), worker()]).then(redraw);
+  }
+
+  function ideaRow(s, i, iv) {
+    const x = iv?.r ? iv : null, r = x?.r, o = x?.o;
+    const cur = o?.v?.priceCurrency && o.v.priceCurrency !== "USD" ? o.v.priceCurrency + " " : "$";
+    const m = (n) => (Number.isFinite(n) ? cur + n.toFixed(2) : "—");
+    const why = [], risks = [];
+    if (r && r.rating !== "Not rated") {
+      why.push(`12-month model target ${m(r.target)}: ${pct(r.etr * 100, 0)} expected total return${r.dy ? ` incl. a ${(r.dy * 100).toFixed(1)}% dividend` : ""}. Model range ${m(o.rangeLow)}–${m(o.rangeHigh)} from ${o.methods.map((x) => x.key).join(" + ")}.`);
+      if (Number.isFinite(r.variant) && Math.abs(r.variant) >= 0.03) why.push(`Expectations gap: the price implies ${(o.implied * 100).toFixed(0)}% starting revenue growth vs consensus ${(r.consG * 100).toFixed(0)}%, so the market is pricing in ${r.variant < 0 ? "less" : "more"} growth than analysts expect.`);
+      const rv = o.v.consensus?.epsRev90NY ?? o.v.consensus?.epsRev90CY;
+      if (Number.isFinite(rv) && Math.abs(rv) >= 2) why.push(`Analysts have ${rv > 0 ? "raised" : "cut"} next year's EPS estimate ${Math.abs(rv).toFixed(0)}% in 90 days.`);
+      if (o.piotroski?.of >= 7) why.push(`Quality: Piotroski ${o.piotroski.score}/${o.piotroski.of}${Number.isFinite(o.roic) ? `, return on capital ${(o.roic * 100).toFixed(0)}% vs ${(o.C.wacc * 100).toFixed(1)}% cost of capital` : ""}.`);
+      if (r.capped) risks.push("Upgrade withheld: low input quality");
+      if (o.setup?.peak) risks.push("Margins near a cyclical peak");
+      if (Number.isFinite(o.netDebtEbitda) && o.netDebtEbitda > 3) risks.push(`Net debt ${o.netDebtEbitda.toFixed(1)}× EBITDA`);
+      if (o.altman?.zone === "Distress") risks.push("Altman distress zone");
+      if (o.v.sentiment?.shortPctFloat > 0.1) risks.push(`${(o.v.sentiment.shortPctFloat * 100).toFixed(0)}% short interest`);
+      if (o.dcf?.tvShare > 0.75) risks.push("DCF leans on terminal value");
+    } else if (r) why.push(`Not rated: ${r.why}`);
+    else if (iv?.err) why.push("Valuation data couldn't be loaded; showing the older signal score.");
+    const tag = r ? `<span class="val-rating r-${r.rating.toLowerCase().replace(/ /g, "")}">${esc(r.rating)}</span>` : iv === null ? `<span class="tag muted">Valuing…</span>` : "";
+    const stats = r && r.rating !== "Not rated" ? `
+        <div><small class="lbl">Conviction</small><b class="idea-score" style="--s:${r.conviction}">${r.conviction}</b></div>
+        <div><small class="lbl">12-mo target</small><b>${m(r.target)}</b></div>
+        <div><small class="lbl">Exp. return</small>${pctCell(r.etr * 100, 0)}</div>
+        <div class="ud"><small class="lbl">Up / down</small>${o.riskReward ? `${pctCell(o.riskReward.up, 0)} / ${pctCell(o.riskReward.down, 0)}` : "—"}</div>
+        <div><small class="lbl">Input quality</small>${esc(o.confidence)}</div>` : `
+        <div><small class="lbl">Signal score</small><b class="idea-score" style="--s:${s.score ?? 0}">${s.score ?? "—"}</b></div>
+        <div><small class="lbl">Estimates 90d</small>${pctCell(s.rev90, 0)}</div>
+        <div><small class="lbl">Growth next yr</small>${pctCell(s.growthNext, 0)}</div>
+        <div><small class="lbl">Analyst upside</small>${pctCell(s.upside, 0)}</div>
+        <div><small class="lbl">1-yr price</small>${pctCell(s.chg1y, 0)}</div>`;
+    return `<li class="idea clickable" data-symbol="${esc(s.symbol)}">
         <div class="idea-rank">${i + 1}</div>
         <div class="idea-main">
-          <div class="idea-top">${symCell(s.symbol, s.name)}<span class="tag acct">${esc(s.group)}</span></div>
-          <ul class="idea-why">${s.why.map((w) => `<li>${esc(w)}</li>`).join("") || `<li class="muted">Mixed signals: no single factor stands out</li>`}</ul>
-          ${s.risks.length ? `<div class="idea-risk">⚠ ${s.risks.map(esc).join(" · ")}</div>` : ""}
+          <div class="idea-top">${symCell(s.symbol, s.name)}${tag}<span class="tag acct">${esc(s.group)}</span></div>
+          <ul class="idea-why">${why.length ? why.map((w) => `<li>${esc(w)}</li>`).join("") : s.why.map((w) => `<li>${esc(w)}</li>`).join("") || `<li class="muted">Mixed signals</li>`}</ul>
+          ${risks.length || (!r && s.risks.length) ? `<div class="idea-risk">⚠ ${(risks.length ? risks : s.risks).map(esc).join(" · ")}</div>` : ""}
         </div>
-        <div class="idea-stats">
-          <div><small class="lbl">Score</small><b class="idea-score" style="--s:${s.score ?? 0}">${s.score ?? "—"}</b></div>
-          <div><small class="lbl">Estimates 90d</small>${pctCell(s.rev90, 0)}</div>
-          <div><small class="lbl">Growth next yr</small>${pctCell(s.growthNext, 0)}</div>
-          <div><small class="lbl">Analyst upside</small>${pctCell(s.upside, 0)}</div>
-          <div><small class="lbl">1-yr price</small>${pctCell(s.chg1y, 0)}</div>
-        </div>
-      </li>`).join("")}</ol>${list.length > 12 ? `<button class="link ta-more" data-ideas-more>${state.idShowAll ? "Show top 12" : `Show all ${list.length}`}</button>` : ""}` : `<p class="empty-line">No stocks in this group right now.</p>`;
+        <div class="idea-stats">${stats}</div>
+      </li>`;
+  }
+
+  function renderStockIdeas(d, listOnly) {
+    if (!listOnly) renderChain();
+    valueIdeas(d.stocks || []);
+    setPressed($("#idFilter"), "group", state.idGroup);
+    setPressed($("#idRating"), "rating", state.idRating || "all");
+    const g = state.idGroup, rf = state.idRating || "all", iv = state.ideaVals || {};
+    const rk = (s) => { const r = iv[s.symbol]?.r; return r ? RATING_ORDER[r.rating] : 4; };
+    let list = (d.stocks || []).filter((s) => g === "all" || (g === "other" ? s.group !== "AI build-out" && s.group !== "Canada" : s.group === g));
+    list = list.slice().sort((a, b) => rk(a) - rk(b) || ((iv[b.symbol]?.r?.conviction ?? b.score ?? 0) - (iv[a.symbol]?.r?.conviction ?? a.score ?? 0)));
+    if (rf !== "all") list = list.filter((s) => iv[s.symbol]?.r?.rating === rf);
+    const syms = (d.stocks || []).map((s) => s.symbol), done = syms.filter((x) => iv[x]).length;
+    const counts = { Buy: 0, Hold: 0, Sell: 0, "Not rated": 0 };
+    syms.forEach((x) => { const r = iv[x]?.r; if (r) counts[r.rating]++; });
+    $("#idRateStatus").innerHTML = done < syms.length
+      ? `<div class="rate-prog"><span style="width:${Math.round((done / Math.max(1, syms.length)) * 100)}%"></span></div><small class="muted">Valuing ${done} of ${syms.length} companies with the DCF and peer models…</small>`
+      : `<small class="muted">${counts.Buy} Buy · ${counts.Hold} Hold · ${counts.Sell} Sell · ${counts["Not rated"]} not rated, out of ${syms.length} companies</small>`;
+    const show = state.idShowAll ? list : list.slice(0, 12);
+    $("#idList").innerHTML = list.length ? `<ol class="idea-list">${show.map((s, i) => ideaRow(s, i, iv[s.symbol])).join("")}</ol>${list.length > 12 ? `<button class="link ta-more" data-ideas-more>${state.idShowAll ? "Show top 12" : `Show all ${list.length}`}</button>` : ""}` : `<p class="empty-line">${rf !== "all" && done < syms.length ? "Still valuing companies…" : "No stocks match this filter right now."}</p>`;
   }
 
   const PERIOD_LABEL = { ytd: "Year to date", total1y: "1 year", total3y: "3 years / yr", total5y: "5 years / yr" };
@@ -1983,6 +2050,7 @@
     onSeg("#mkSeg", "sub", (v) => { state.mkSub = v; renderMarkets(); });
     onSeg("#idSeg", "sub", (v) => { state.idSub = v; renderIdeas(); });
     onSeg("#idFilter", "group", (v) => { state.idGroup = v; state.idShowAll = false; renderIdeas(); });
+    onSeg("#idRating", "rating", (v) => { state.idRating = v; state.idShowAll = false; renderIdeas(); });
     $("#view-ideas").addEventListener("click", (e) => {
       const r = e.target.closest("[data-region]"); if (r) { state.idRegion = r.dataset.region; renderIdeas(); return; }
       if (e.target.closest("[data-ideas-retry]")) { state.ideasData[IDEA_SRC[state.idSub]] = null; renderIdeas(); return; }
