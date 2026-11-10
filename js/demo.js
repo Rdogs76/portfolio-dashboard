@@ -256,9 +256,14 @@
       insight: `${cand[0].name} shows the strongest estimate-revision lead in this demo data (median ${cand[0].rev90}% in 90 days).`, coverage: 100, listDate: "2026-11-08", asOf: Date.now() };
   }
 
+  function demoHist(sym) {
+    const r = rng(hash(sym + "hist")), now = Date.now(), Q = 91 * 86400000, base = 1 + r() * 3;
+    return [3, 2, 1, 0].map((k) => { const est = +(base * (1 + 0.03 * (3 - k))).toFixed(2); return { label: `Q${((7 - k) % 4) + 1}`, period: now - (k + 1) * Q + 20 * 86400000, reported: now - k * Q - (10 + Math.floor(r() * 40)) * 86400000, estimate: est, actual: +(est * (0.92 + r() * 0.16)).toFixed(2) }; });
+  }
+
   function meta(sym) {
     const s = stock(sym); const m = info(sym);
-    return { symbol: sym, name: m.name, type: m.type, currency: m.currency, sector: s.sector, sectorWeights: s.fund?.sectorWeights || null, earnings: { dates: s.earnings.next || [], epsEstimate: s.earnings.epsEstimate, revenueEstimate: s.earnings.revenueEstimate }, exDividendDate: null };
+    return { symbol: sym, name: m.name, type: m.type, currency: m.currency, sector: s.sector, sectorWeights: s.fund?.sectorWeights || null, earnings: { dates: s.earnings.next || [], epsEstimate: s.earnings.epsEstimate, revenueEstimate: s.earnings.revenueEstimate, history: demoHist(sym) }, exDividendDate: null };
   }
 
   const MARKET = [["^GSPC", "S&P 500", "index"], ["^IXIC", "Nasdaq", "index"], ["^DJI", "Dow Jones", "index"], ["^GSPTSE", "S&P/TSX", "index"], ["^RUT", "Russell 2000", "index"],
