@@ -988,29 +988,66 @@
     if (changed) save();
   }
 
-  function earningsRows() {
+  // Major companies shown on the Earnings tab alongside your own: the S&P 100 plus the largest TSX names.
+  const MAJOR_EARNINGS = ("AAPL MSFT NVDA AMZN GOOGL META AVGO TSLA BRK-B LLY JPM V UNH XOM MA JNJ PG HD COST ABBV WMT NFLX BAC CRM ORCL KO CVX MRK AMD PEP TMO ADBE LIN ACN MCD CSCO ABT WFC IBM GE DHR TXN QCOM INTU PM CAT VZ AMGN ISRG NOW DIS T PFE GS UBER SPGI RTX AXP LOW NEE CMCSA UNP HON BKNG BLK SYK TJX ELV PGR MS SCHW C LMT DE BA ADP MDT GILD PLD CB MU AMAT LRCX ADI PANW KLAC SBUX MO SO DUK MDLZ BMY CI MMM UPS INTC NKE PYPL TGT F GM PLTR ANET " +
+    "RY.TO TD.TO BNS.TO BMO.TO CM.TO ENB.TO CNQ.TO CP.TO CNR.TO SHOP.TO SU.TO TRP.TO BN.TO MFC.TO SLF.TO ATD.TO CSU.TO WCN.TO NTR.TO AEM.TO BCE.TO T.TO L.TO FTS.TO IFC.TO DOL.TO QSR.TO GIB-A.TO WPM.TO TRI.TO").split(" ");
+  const MAJOR_SET = new Set(MAJOR_EARNINGS);
+
+  function earningsRows(withMajor = false) {
     const held = new Set(Object.values(computeHoldings()).filter((h) => h.qty > 0).map((h) => h.symbol));
     const watch = new Set(state.data.watchlist);
     const start = Date.now() - 86400000;
-    return [...new Set([...held, ...watch])].map((s) => {
+    const horizon = Date.now() + 91 * 86400000; // major companies: next 13 weeks only
+    const base = [...held, ...watch];
+    const syms = withMajor ? [...base, ...MAJOR_EARNINGS.filter((s) => state.meta[s])] : base;
+    return [...new Set(syms)].map((s) => {
       const m = state.meta[s];
       const date = (m?.earnings?.dates || []).find((t) => t >= start) || null;
-      return { symbol: s, name: m?.name || state.quotes[s]?.name || s, date, eps: m?.earnings?.epsEstimate, rev: m?.earnings?.revenueEstimate, currency: m?.currency, type: m?.type, inHoldings: held.has(s), inWatch: watch.has(s), loaded: !!m };
-    }).sort((a, b) => (a.date || Infinity) - (b.date || Infinity));
+      return { symbol: s, name: m?.name || state.quotes[s]?.name || s, date, eps: m?.earnings?.epsEstimate, rev: m?.earnings?.revenueEstimate, currency: m?.currency, type: m?.type, inHoldings: held.has(s), inWatch: watch.has(s), inMajor: MAJOR_SET.has(s), loaded: !!m };
+    }).filter((r) => r.inHoldings || r.inWatch || (r.date && r.date <= horizon))
+      .sort((a, b) => (a.date || Infinity) - (b.date || Infinity));
   }
-  async function renderEarnings() {
+  let majorLoading = false;
+  async function loadMajorEarnings() {
+    if (majorLoading) return;
+    const need = MAJOR_EARNINGS.filter((s) => !state.meta[s]);
+    if (!need.length) return;
+    majorLoading = true;
+    const chunks = [];
+    for (let i = 0; i < need.length; i += 20) chunks.push(need.slice(i, i + 20));
+    let next = 0;
+    const worker = async () => {
+      while (next < chunks.length) {
+        const c = chunks[next++];
+        try { const r = await api("meta", { symbols: c.join(",") }); Object.assign(state.meta, r.meta); } catch (e) { console.warn("meta", e); }
+        if (state.tab === "markets" && state.mkSub === "earnings") renderEarnings(true);
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    majorLoading = false;
+    if (state.tab === "markets" && state.mkSub === "earnings") renderEarnings(true);
+  }
+
+  async function renderEarnings(fromLoader) {
     setPressed($("#earnScope"), "scope", state.earnScope);
     const syms = metaSymbols();
+    const wantMajor = state.earnScope === "all" || state.earnScope === "major";
     if (syms.some((s) => !state.meta[s])) { $("#earnList").innerHTML = `<article class="card flush"><ul class="list" style="padding:16px">${skeletonList(4)}</ul></article>`; await loadMeta(syms); if (state.tab !== "markets" || state.mkSub !== "earnings") return; }
-    let rows = earningsRows();
+    if (wantMajor && !fromLoader) loadMajorEarnings();
+    let rows = earningsRows(wantMajor);
     if (state.earnScope === "holdings") rows = rows.filter((r) => r.inHoldings);
     if (state.earnScope === "watchlist") rows = rows.filter((r) => r.inWatch);
-    if (!rows.length) { $("#earnList").innerHTML = `<div class="card empty"><p>Nothing here yet. Add holdings or watchlist tickers to see their earnings dates.</p></div>`; return; }
+    if (state.earnScope === "major") rows = rows.filter((r) => r.inMajor);
+    const loadedMajor = MAJOR_EARNINGS.filter((s) => state.meta[s]).length;
+    const status = wantMajor && loadedMajor < MAJOR_EARNINGS.length && majorLoading
+      ? `<p class="muted small">Loading earnings dates for major companies… ${loadedMajor} of ${MAJOR_EARNINGS.length}</p>`
+      : wantMajor ? `<p class="muted small">Includes ${MAJOR_EARNINGS.length} major companies (S&amp;P 100 and the largest TSX names) reporting in the next 13 weeks, plus your holdings and watchlist.</p>` : "";
+    if (!rows.length) { $("#earnList").innerHTML = status + `<div class="card empty"><p>${wantMajor && majorLoading ? "Loading earnings dates…" : "Nothing here yet. Add holdings or watchlist tickers to see their earnings dates."}</p></div>`; return; }
     const weekOf = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.getTime(); };
     const thisWeek = weekOf(Date.now());
     const groups = new Map();
     for (const r of rows) { const k = r.date ? weekOf(r.date) : "none"; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
-    $("#earnList").innerHTML = [...groups.entries()].map(([k, list]) => {
+    $("#earnList").innerHTML = status + [...groups.entries()].map(([k, list]) => {
       const title = k === "none" ? "Date not announced / no earnings (ETFs)" : k === thisWeek ? "This week" : k === thisWeek + 7 * 86400000 ? "Next week" : "Week of " + fmtDate(k, { month: "long", day: "numeric" });
       return `<section class="earn-week"><h3>${title}</h3><article class="card flush">${list.map((r) => `
         <div class="earn-row" data-symbol="${esc(r.symbol)}" role="button" tabindex="0">
