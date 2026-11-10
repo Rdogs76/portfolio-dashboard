@@ -1007,6 +1007,28 @@
     }).filter((r) => r.inHoldings || r.inWatch || (r.date && r.date <= horizon))
       .sort((a, b) => (a.date || Infinity) - (b.date || Infinity));
   }
+  // Beat / miss vs the analysts' EPS estimate for one reported quarter.
+  function epsResult(h) {
+    if (!h || !isNum(h.actual) || !isNum(h.estimate)) return null;
+    const diff = h.actual - h.estimate;
+    const surprise = h.estimate !== 0 ? (diff / Math.abs(h.estimate)) * 100 : null;
+    return { ...h, diff, surprise, status: Math.abs(diff) < 0.005 ? "Met" : diff > 0 ? "Beat" : "Miss" };
+  }
+  const resultBadge = (r, short) => r ? `<span class="tag ${r.status === "Beat" ? "up" : r.status === "Miss" ? "down" : ""}">${short ? "Last qtr: " : ""}${r.status}${isNum(r.surprise) && r.status !== "Met" ? ` ${r.surprise > 0 ? "+" : ""}${r.surprise.toFixed(1)}%` : ""}</span>` : "";
+  function pastRows(withMajor) {
+    const held = new Set(Object.values(computeHoldings()).filter((h) => h.qty > 0).map((h) => h.symbol));
+    const watch = new Set(state.data.watchlist);
+    const since = Date.now() - 91 * 86400000;
+    const syms = [...held, ...watch, ...(withMajor ? MAJOR_EARNINGS.filter((s) => state.meta[s]) : [])];
+    return [...new Set(syms)].map((s) => {
+      const m = state.meta[s], hist = (m?.earnings?.history || []).map(epsResult).filter(Boolean);
+      const last = hist.at(-1);
+      return last && { symbol: s, name: m?.name || s, currency: m?.currency, last, when: last.reported || last.period, hist, beats: hist.filter((h) => h.status === "Beat").length,
+        inHoldings: held.has(s), inWatch: watch.has(s), inMajor: MAJOR_SET.has(s) };
+    }).filter((r) => r && (r.inHoldings || r.inWatch || (r.when && r.when >= since)))
+      .sort((a, b) => (b.when || 0) - (a.when || 0));
+  }
+
   let majorLoading = false;
   async function loadMajorEarnings() {
     if (majorLoading) return;
@@ -1034,6 +1056,8 @@
     const wantMajor = state.earnScope === "all" || state.earnScope === "major";
     if (syms.some((s) => !state.meta[s])) { $("#earnList").innerHTML = `<article class="card flush"><ul class="list" style="padding:16px">${skeletonList(4)}</ul></article>`; await loadMeta(syms); if (state.tab !== "markets" || state.mkSub !== "earnings") return; }
     if (wantMajor && !fromLoader) loadMajorEarnings();
+    setPressed($("#earnWhen"), "when", state.earnWhen || "upcoming");
+    if (state.earnWhen === "past") return renderPastEarnings(wantMajor);
     let rows = earningsRows(wantMajor);
     if (state.earnScope === "holdings") rows = rows.filter((r) => r.inHoldings);
     if (state.earnScope === "watchlist") rows = rows.filter((r) => r.inWatch);
@@ -1052,10 +1076,42 @@
       return `<section class="earn-week"><h3>${title}</h3><article class="card flush">${list.map((r) => `
         <div class="earn-row" data-symbol="${esc(r.symbol)}" role="button" tabindex="0">
           <div class="earn-date">${r.date ? `<span>${fmtDate(r.date, { weekday: "short" })}</span><b>${new Date(r.date).getDate()}</b><span>${fmtDate(r.date, { month: "short" })}</span>` : avatar(r.symbol)}</div>
-          <div class="grow" style="min-width:0"><div class="row gap"><b>${esc(r.symbol)}</b>${r.inHoldings ? `<span class="tag up">Holding</span>` : ""}${r.inWatch && !r.inHoldings ? `<span class="tag">Watchlist</span>` : ""}</div><div class="small muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name)}</div></div>
+          <div class="grow" style="min-width:0"><div class="row gap"><b>${esc(r.symbol)}</b>${r.inHoldings ? `<span class="tag up">Holding</span>` : ""}${r.inWatch && !r.inHoldings ? `<span class="tag">Watchlist</span>` : ""}${resultBadge(epsResult((state.meta[r.symbol]?.earnings?.history || []).at(-1)), true)}</div><div class="small muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name)}</div></div>
           <div class="earn-est">EPS est.<b>${isNum(r.eps) ? num(r.eps) : "—"}</b></div>
           <div class="earn-est rev">Revenue est.<b>${big(r.rev, r.currency)}</b></div>
         </div>`).join("")}</article></section>`;
+    }).join("");
+  }
+
+  function renderPastEarnings(wantMajor) {
+    let rows = pastRows(wantMajor);
+    if (state.earnScope === "holdings") rows = rows.filter((r) => r.inHoldings);
+    if (state.earnScope === "watchlist") rows = rows.filter((r) => r.inWatch);
+    if (state.earnScope === "major") rows = rows.filter((r) => r.inMajor);
+    const loading = wantMajor && majorLoading;
+    if (!rows.length) { $("#earnList").innerHTML = `<div class="card empty"><p>${loading ? "Loading earnings results…" : "No reported results to show for this filter yet."}</p></div>`; return; }
+    const n = rows.length, beat = rows.filter((r) => r.last.status === "Beat").length, miss = rows.filter((r) => r.last.status === "Miss").length;
+    const surp = rows.map((r) => r.last.surprise).filter(isNum).sort((a, b) => a - b);
+    const med = surp.length ? surp[Math.floor(surp.length / 2)] : null;
+    const summary = `<article class="card earn-sum"><div><span>Beat estimates</span><b class="up">${beat} of ${n}</b><small>${Math.round((beat / n) * 100)}% of companies</small></div>
+      <div><span>Missed</span><b class="down">${miss}</b><small>${n - beat - miss} matched exactly</small></div>
+      <div><span>Median EPS surprise</span><b class="${cls(med)}">${isNum(med) ? (med > 0 ? "+" : "") + med.toFixed(1) + "%" : "—"}</b><small>actual vs analysts' estimate</small></div></article>
+      ${loading ? `<p class="muted small">Loading results for major companies… ${MAJOR_EARNINGS.filter((s) => state.meta[s]).length} of ${MAJOR_EARNINGS.length}</p>` : `<p class="muted small">Latest reported quarter for ${wantMajor ? "major companies that reported in the last 13 weeks, plus your holdings and watchlist" : "these companies"}. Beat or miss is earnings per share vs the average analyst estimate before the report (Yahoo Finance).</p>`}`;
+    const weekOf = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.getTime(); };
+    const thisWeek = weekOf(Date.now());
+    const groups = new Map();
+    for (const r of rows) { const k = r.last.reported ? weekOf(r.last.reported) : "q"; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
+    const money2 = (v, c) => (isNum(v) ? (c && c !== "USD" ? c + " " : "$") + v.toFixed(2) : "—");
+    $("#earnList").innerHTML = summary + [...groups.entries()].map(([k, list]) => {
+      const title = k === "q" ? "Report date not available (by quarter end)" : k === thisWeek ? "Reported this week" : k === thisWeek - 7 * 86400000 ? "Reported last week" : "Reported week of " + fmtDate(k, { month: "long", day: "numeric" });
+      return `<section class="earn-week"><h3>${title}</h3><article class="card flush">${list.map((r) => {
+        const d = r.last.reported || r.last.period;
+        return `<div class="earn-row past" data-symbol="${esc(r.symbol)}" role="button" tabindex="0">
+          <div class="earn-date">${d ? `<span>${fmtDate(d, { weekday: "short" })}</span><b>${new Date(d).getDate()}</b><span>${fmtDate(d, { month: "short" })}</span>` : avatar(r.symbol)}</div>
+          <div class="grow" style="min-width:0"><div class="row gap"><b>${esc(r.symbol)}</b>${resultBadge(r.last)}${r.inHoldings ? `<span class="tag up">Holding</span>` : ""}</div><div class="small muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name)}${r.last.label ? ` · ${esc(r.last.label)}` : ""} · beat ${r.beats} of last ${r.hist.length}</div></div>
+          <div class="earn-est">EPS actual<b>${money2(r.last.actual, r.currency)}</b></div>
+          <div class="earn-est rev">Estimate<b>${money2(r.last.estimate, r.currency)}</b></div>
+        </div>`; }).join("")}</article></section>`;
     }).join("");
   }
 
@@ -2100,6 +2156,7 @@
       const s = e.target.closest("[data-symbol]"); if (s) { e.stopPropagation(); openResearch(s.dataset.symbol); }
     });
     onSeg("#earnScope", "scope", (v) => { state.earnScope = v; renderEarnings(); });
+    onSeg("#earnWhen", "when", (v) => { state.earnWhen = v; renderEarnings(); });
     onSeg("#cmpRanges", "range", (v) => { state.cmpRange = v; renderCompare(); });
     $("#watchAddForm").addEventListener("submit", async (e) => {
       e.preventDefault(); const raw = $("#watchAddInput").value.trim(); if (!raw) return;
