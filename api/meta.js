@@ -1,9 +1,11 @@
 // GET /api/meta?symbols=AAPL,VFV.TO
-// Sector info (stocks) or sector weights (ETFs) plus the next earnings date, for many symbols at once.
+// Sector info (stocks) or sector weights (ETFs), the next earnings date and the last four quarters'
+// of reported EPS vs estimates (beat / miss), for many symbols at once.
 import { yf, send, symbolsFrom, num, time, NO_VALIDATE, sectorWeightsFrom } from "./_lib/util.js";
 
 const ATTEMPTS = [
-  ["price", "assetProfile", "calendarEvents", "topHoldings"],
+  ["price", "assetProfile", "calendarEvents", "topHoldings", "earnings", "earningsHistory"],
+  ["price", "assetProfile", "calendarEvents", "earnings", "earningsHistory"],
   ["price", "assetProfile", "calendarEvents"],
   ["price", "topHoldings"],
   ["price"],
@@ -18,6 +20,14 @@ async function one(symbol) {
   if (!s) throw lastErr;
   const p = s.price || {};
   const e = s.calendarEvents?.earnings || {};
+  // Past results: actual vs estimated EPS per quarter, with the date it was reported when Yahoo has it.
+  let history = (s.earnings?.earningsChart?.quarterly || []).map((q) => ({
+    label: q.fiscalQuarter || q.date || null, period: time(q.periodEndDate), reported: time(q.reportedDate),
+    actual: num(q.actual), estimate: num(q.estimate),
+  })).filter((h) => h.actual != null && h.estimate != null);
+  if (!history.length) history = (s.earningsHistory?.history || []).map((h) => ({
+    label: null, period: time(h.quarter), reported: null, actual: num(h.epsActual), estimate: num(h.epsEstimate),
+  })).filter((h) => h.actual != null && h.estimate != null);
   return {
     symbol,
     name: p.shortName || p.longName || symbol,
@@ -30,6 +40,7 @@ async function one(symbol) {
       dates: (e.earningsDate || []).map(time).filter(Boolean),
       epsEstimate: num(e.earningsAverage),
       revenueEstimate: num(e.revenueAverage),
+      history: history.slice(-4),
     },
     exDividendDate: time(s.calendarEvents?.exDividendDate),
   };
